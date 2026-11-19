@@ -5,6 +5,7 @@ import multiprocessing
 import os
 import shutil
 import stat
+import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -42,6 +43,31 @@ def test_parse_claude_usage_12am(monkeypatch, tmp_path):
     now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
     parsed = q.parse_claude_usage("Current session: 18% used · resets Nov 20, 12:10am (Asia/Bangkok)", now)
     assert datetime.datetime.fromtimestamp(parsed["five_hour"]["resets_at"], ZoneInfo("Asia/Bangkok")).hour == 0
+
+
+def test_parse_claude_usage_full_month_name(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    parsed = q.parse_claude_usage("Current session: 18% used · resets November 20, 1am (UTC)", now)
+    assert datetime.datetime.fromtimestamp(parsed["five_hour"]["resets_at"], datetime.timezone.utc) == datetime.datetime(2026, 11, 20, 1, tzinfo=datetime.timezone.utc)
+
+
+def test_parse_claude_usage_malformed_timezone(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    parsed = q.parse_claude_usage("Current session: 18% used · resets November 20, 1am (../../etc/passwd)", now)
+    assert parsed == {}
+
+
+def test_run_cli_kills_process_group_on_timeout(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fake = tmp_path / "hung-cli"
+    fake.write_text("#!/bin/sh\nsleep 60 &\nsleep 60\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+
+    started = time.monotonic()
+    assert q._run_cli([str(fake)], timeout=1) is None
+    assert time.monotonic() - started < 5
 
 
 def test_parse_claude_usage_garbage_and_partial(monkeypatch, tmp_path):
@@ -93,7 +119,7 @@ def test_codex_refresh_no_rollout_noop(monkeypatch, tmp_path):
     sessions.mkdir()
     monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(sessions))
     assert q.codex_refresh() is False
-    assert q.load() == {}
+    assert set(q.load()["_meta"]["last_attempt"]) == {"codex"}
 
 
 def test_pick_refreshes_stale_vendors(monkeypatch, tmp_path, capsys):
@@ -111,6 +137,45 @@ def test_pick_refreshes_stale_vendors(monkeypatch, tmp_path, capsys):
     assert q.main(["pick", "claude", "claude", "codex"]) == 0
     assert marker.exists()
     assert capsys.readouterr().out
+
+
+def test_pick_does_not_retry_failed_claude_within_cooldown(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
+    marker = tmp_path / "attempts"
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\necho attempt >> '{marker}'\nexit 1\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(fake))
+
+    for _ in range(2):
+        assert q.main(["pick", "claude", "claude", "codex"]) == 0
+        capsys.readouterr()
+
+    assert marker.read_text(encoding="utf-8").splitlines() == ["attempt"]
+    assert q.load()["_meta"]["last_attempt"]["claude"] == fixed_now
+
+
+def test_pick_refreshes_claude_and_agy_concurrently(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    claude_fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    agy_fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    claude = tmp_path / "claude"
+    agy = tmp_path / "agy"
+    claude.write_text(f"#!/bin/sh\nsleep 1\ncat '{claude_fixture}'\n", encoding="utf-8")
+    agy.write_text(f"#!/bin/sh\nsleep 1\ncat '{agy_fixture}'\n", encoding="utf-8")
+    claude.chmod(claude.stat().st_mode | stat.S_IXUSR)
+    agy.chmod(agy.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(claude))
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(agy))
+
+    started = time.monotonic()
+    assert q.main(["pick", "claude", "claude", "agy:claude-sonnet-4-6"]) == 0
+    elapsed = time.monotonic() - started
+
+    assert capsys.readouterr().out
+    assert elapsed < 1.8
 
 
 def test_pick_after_partial_claude_refresh_keeps_missing_week_empty(monkeypatch, tmp_path, capsys):

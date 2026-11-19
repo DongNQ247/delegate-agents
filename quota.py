@@ -5,9 +5,11 @@ import glob
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -70,6 +72,53 @@ def _write_locked(change):
             if os.path.exists(temporary):
                 os.unlink(temporary)
         return True
+
+
+def _run_cli(argv, timeout=30, cwd=None):
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            errors="replace",
+        )
+        try:
+            stdout, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return stdout if process.returncode == 0 else None
+
+
+def _begin_refresh(vendor, if_older, now):
+    def begin(data):
+        meta = data.setdefault("_meta", {})
+        attempts = meta.setdefault("last_attempt", {})
+        if if_older is not None:
+            updated = (
+                agy_oldest_update(data)
+                if vendor == "agy"
+                else data.get(vendor, {}).get("updated")
+            )
+            last_attempt = attempts.get(vendor)
+            if updated is not None and now - updated < if_older:
+                return False
+            if last_attempt is not None and now - last_attempt < if_older:
+                return False
+        attempts[vendor] = now
+        return True
+
+    return _write_locked(begin)
 
 
 def update_agy(pools, updated):
@@ -146,21 +195,13 @@ def agy_oldest_update(data):
 
 def agy_refresh(if_older=None, now=None):
     now = time.time() if now is None else now
-    if if_older is not None:
-        oldest = agy_oldest_update(load())
-        if oldest is not None and now - oldest < if_older:
-            return False
+    if not _begin_refresh("agy", if_older, now):
+        return False
     command = os.environ.get("DELEGATE_AGY_BIN", "agy")
-    try:
-        result = subprocess.run(
-            [command, "-p", "/usage"], capture_output=True, text=True,
-            errors="replace", stdin=subprocess.DEVNULL, timeout=30, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+    output = _run_cli([command, "-p", "/usage"])
+    if output is None:
         return False
-    if result.returncode != 0:
-        return False
-    pools = parse_agy_usage(result.stdout)
+    pools = parse_agy_usage(output)
     if not pools:
         return False
     update_agy(pools, now)
@@ -191,9 +232,11 @@ def parse_claude_usage(text: str, now: float) -> dict:
             reset_at = None
             for year in range(local_now.year - 1, local_now.year + 3):
                 try:
-                    candidate = datetime.strptime(f"{month} {day} {year}", "%b %d %Y").replace(
-                        hour=hour, minute=int(minute or 0), tzinfo=zone,
-                    )
+                    try:
+                        candidate = datetime.strptime(f"{month} {day} {year}", "%b %d %Y")
+                    except ValueError:
+                        candidate = datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
+                    candidate = candidate.replace(hour=hour, minute=int(minute or 0), tzinfo=zone)
                 except ValueError:
                     continue
                 if candidate.timestamp() >= earliest.timestamp():
@@ -211,28 +254,20 @@ def parse_claude_usage(text: str, now: float) -> dict:
     return windows
 
 
-def _refresh_is_stale(vendor, if_older, now):
-    if if_older is None:
-        return True
-    updated = load().get(vendor, {}).get("updated")
-    return updated is None or now - updated >= if_older
-
-
 def claude_refresh(if_older=None, now=None):
     now = time.time() if now is None else now
-    if not _refresh_is_stale("claude", if_older, now):
+    if not _begin_refresh("claude", if_older, now):
         return False
     command = os.environ.get("DELEGATE_CLAUDE_BIN", "claude")
-    try:
-        result = subprocess.run(
-            [command, "-p", "/usage"], capture_output=True, text=True,
-            errors="replace", stdin=subprocess.DEVNULL, timeout=30, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+    state_directory = os.path.dirname(os.path.abspath(QUOTA_PATH))
+    os.makedirs(state_directory, exist_ok=True)
+    output = _run_cli(
+        [command, "-p", "/usage", "--no-session-persistence"],
+        cwd=state_directory,
+    )
+    if output is None:
         return False
-    if result.returncode != 0:
-        return False
-    parsed = parse_claude_usage(result.stdout, now)
+    parsed = parse_claude_usage(output, now)
     five_hour = parsed.get("five_hour")
     if five_hour is None:
         return False
@@ -243,7 +278,7 @@ def claude_refresh(if_older=None, now=None):
 
 def codex_refresh(if_older=None):
     now = time.time()
-    if not _refresh_is_stale("codex", if_older, now):
+    if not _begin_refresh("codex", if_older, now):
         return False
     result = codex_from_rollout(
         None, sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions")
@@ -386,25 +421,35 @@ def main(argv=None):
     if len(argv) >= 3 and argv[0] == "pick":
         eligible = argv[2:]
         requested = argv[1:]
+        refreshes = []
         if "claude" in requested:
-            try:
-                claude_refresh(if_older=300)
-            except Exception:
-                pass
+            refreshes.append(claude_refresh)
+        if any(item == "agy" or item.startswith("agy:") for item in requested):
+            refreshes.append(agy_refresh)
+        threads = [
+            threading.Thread(target=lambda refresh=refresh: _ignore_refresh_error(refresh))
+            for refresh in refreshes
+        ]
+        for thread in threads:
+            thread.start()
         if "codex" in requested:
             try:
                 codex_refresh(if_older=300)
             except Exception:
                 pass
-        if any(item == "agy" or item.startswith("agy:") for item in requested):
-            try:
-                agy_refresh(if_older=300)
-            except Exception:
-                pass
+        for thread in threads:
+            thread.join()
         vendor, reason = pick(argv[1], eligible, time.time())
         print(f"{vendor}\t{reason}")
         return 0
     return 2
+
+
+def _ignore_refresh_error(refresh):
+    try:
+        refresh(if_older=300)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
