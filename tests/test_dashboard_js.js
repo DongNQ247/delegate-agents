@@ -5,8 +5,8 @@ const html = fs.readFileSync('dashboard.html', 'utf8');
 const match = html.match(/\/\/ <pure>([\s\S]*?)\/\/ <\/pure>/);
 assert.ok(match, 'dashboard.html must expose pure functions');
 const context = { window: {} };
-vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation};', context);
-const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation} = context.window.api;
+vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse};', context);
+const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse} = context.window.api;
 assert.equal(quotaLevel(0.69, '5h'), 'ok');
 assert.equal(quotaLevel(0.70, '5h'), 'warn');
 assert.equal(quotaLevel(0.85, '5h'), 'hot');
@@ -21,4 +21,11 @@ assert.equal(agents.a.start, 1);
 assert.deepEqual(Array.from(conversation([{kind:'command',text:'x'},{kind:'message',text:'y'}]), e => e.kind), ['message']);
 assert.equal(ageText(30), 'just now');
 assert.equal(ageText(300), '5 min ago');
+assert.deepEqual(Array.from(rootAgents({
+  root: {id:'root', parent:'-'},
+  child: {id:'child', parent:'root'},
+  orphan: {id:'orphan', parent:'missing'}
+}), a => a.id), ['root', 'orphan']);
+assert.deepEqual(Array.from(eventsFromResponse(null), e => e.kind), []);
+assert.deepEqual(Array.from(eventsFromResponse('{"kind":"message"}'), e => e.kind), ['message']);
 console.log('ok');
