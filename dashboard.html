@@ -64,13 +64,13 @@ body{height:100vh;min-height:0;overflow:hidden;display:flex;flex-direction:colum
 .pool{border-top:1px dashed var(--line);padding-top:4px;margin-top:6px;min-width:0}
 .pn{font-size:11px;font-weight:700;margin-top:4px}.pm{font-size:10px;color:var(--mut)}
 .upd{font-size:10px;color:var(--mut);margin-top:8px}
-.chips{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.chips{position:sticky;top:0;z-index:1;display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;background:var(--bg);padding:2px 0}
 .chip{border:1.5px solid var(--ink);border-radius:8px;padding:3px 9px;font-size:12px;background:#fff;cursor:pointer;user-select:none}
 .chip.on{outline:2px solid var(--ink);outline-offset:1px;box-shadow:2px 2px 0 var(--ink)}
 .chip[data-filter="running"]{background:#f6e7a8}
 .chip[data-filter="done"]{background:#d6ebc4}
 .chip[data-filter="failed"]{background:#f4c7c2;border-color:#e0564b}
-main{flex:1;align-items:stretch;min-height:460px;height:auto;min-height:0}
+main{flex:1;align-items:stretch;min-height:460px;height:auto}
 main>.pane{display:flex;flex-direction:column;min-height:0}
 main .tree,main .pbody{flex:1;overflow:auto;min-height:0;max-height:none}
 .node{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);box-shadow:2px 2px 0 var(--ink)}
@@ -78,7 +78,7 @@ main .tree,main .pbody{flex:1;overflow:auto;min-height:0;max-height:none}
 .node.done{opacity:1;border-style:solid;background:#d6ebc4;box-shadow:2px 2px 0 var(--ok);padding:4px 9px;font-size:12px}
 .node.failed{background:#f4c7c2;border-color:#e0564b;box-shadow:2px 2px 0 #e0564b}
 .node .tm{margin-left:auto;font-size:11px;border:1px solid var(--ink);border-radius:7px;padding:1px 7px;background:#fff}
-.node.run .tm{font-weight:700;font-size:13px}
+.node.running .tm{font-weight:700;font-size:13px}
 .node .vend{font-size:10px;padding:0 6px;border-radius:6px;color:#fff}
 .node .sum{flex-basis:100%;font-size:11px;opacity:.85}
 .dot.run{background:var(--warn);animation:pulse 1.2s infinite}.dot.done{background:var(--ok);animation:none}.dot.fail{background:var(--hot);animation:none}
