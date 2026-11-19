@@ -91,6 +91,21 @@ def test_pick_unknown_preferred_keeps_capability():
     assert quota.pick("claude", ["claude", "codex"], 1, {})[0] == "claude"
 
 
+def test_pick_expired_preferred_keeps_capability():
+    import quota
+    data = {
+        "claude": {
+            "five_hour": {"used": .9, "resets_at": 99},
+            "week": {"used": .1, "resets_at": 1000},
+        },
+        "codex": {
+            "five_hour": {"used": .1, "resets_at": 1000},
+            "week": {"used": .1, "resets_at": 1000},
+        },
+    }
+    assert quota.pick("claude", ["claude", "codex"], 100, data) == ("claude", "capability")
+
+
 def test_pick_switches_at_5h_085():
     import quota
     data = {"claude":{"five_hour":{"used":.85,"resets_at":100},"week":{"used":.1,"resets_at":100}}, "codex":{"five_hour":{"used":.1,"resets_at":100},"week":{"used":.1,"resets_at":100}}}

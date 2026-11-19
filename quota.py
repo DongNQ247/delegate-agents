@@ -81,8 +81,12 @@ def headroom(entry, now):
     return 1 - max(entry["five_hour"]["used"], entry.get("week", {}).get("used", 0))
 
 
-def _near(entry):
-    return bool(entry and (entry["five_hour"]["used"] >= .85 or entry.get("week", {}).get("used", 0) >= .90))
+def _near(entry, now):
+    return bool(
+        entry
+        and now < entry["five_hour"]["resets_at"]
+        and (entry["five_hour"]["used"] >= .85 or entry.get("week", {}).get("used", 0) >= .90)
+    )
 
 
 def pick(preferred, eligible, now, data=None):
@@ -95,12 +99,12 @@ def pick(preferred, eligible, now, data=None):
         known = [item for item in ranked if item[0] is not None]
         return (max(known)[2], "quota headroom") if known else (eligible[0], "capability")
     entry = data.get(preferred)
-    if preferred not in eligible or not _near(entry):
+    if preferred not in eligible or not _near(entry, now):
         return preferred, "capability"
     alternatives = []
     for vendor in eligible:
         candidate = data.get(vendor)
-        if vendor in (preferred, "agy") or not candidate or _near(candidate):
+        if vendor in (preferred, "agy") or not candidate or _near(candidate, now):
             continue
         amount = headroom(candidate, now)
         if amount is not None:
