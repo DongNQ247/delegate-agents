@@ -33,7 +33,7 @@ Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin l
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Orchestrator | you (Claude) | split the plan, decide from the research report, write worker instructions, verify, merge, clean | research the codebase itself; write code |
+| Orchestrator | you (Claude; always Claude) | split the plan, decide from the research report, write worker instructions, verify, merge, clean | research the codebase itself; write code |
 | Researcher | Codex `gpt-6-luna` low, `MODE=ro` (id `research`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
@@ -124,6 +124,9 @@ bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker.
 - Full worker output: `$R/.agents/<id>.out`.
+- Before each dispatch, choose by capability first, then run `python3 ~/.claude/skills/delegate-agents/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
+- Worker streams create `.agents/<id>.events.jsonl`, `.agents/<id>.raw.jsonl`, and `.agents/<id>.err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The Claude card shows “no data yet” until a Claude worker streams a `rate_limit_event`; do not make probe calls.
+- `DELEGATE_QUOTA` and `DELEGATE_CODEX_SESSIONS` are test-only environment overrides.
 - Sub-orchestrator (claude) launching children: headless Claude blocks compound commands (`export …; (… & …)` → "can't be checked before it runs"). Give it `ALLOWED_TOOLS="Bash(MODE=ro bash <run-agent path>:*)"` (or without `MODE=ro`) and tell it to send one Bash call per child, in parallel, no cd/export. AGENTS_LOG is inherited.
 
 ## Routing
@@ -137,11 +140,12 @@ bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 ## Rules
 
 1. Each task prompt is self-contained: goal, files, acceptance check (test command), "reply with a one-line summary".
-2. Parallel writers each get their own worktree — never two writers in one tree. See "Parallel + merge".
-3. Never trust the agent's summary: run the tests and read `git diff` yourself before accepting.
-4. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
-5. Whoever creates a worktree/branch/server owns merging and cleanup. Workers never merge or clean. A sub-orchestrator hands up only a merged, tested, clean area branch. You (root) finish into master via superpowers:finishing-a-development-branch, stop the dashboard (`dashboard.sh stop <repo>`), and keep `.agents/` logs (git-excluded).
-6. Don't end your turn while a worktree, task branch or server you created still exists — unless the user asked to keep it. Check: `git worktree list`, `git branch`, background tasks.
+2. Route by capability first. Switch vendors only when the preferred vendor has 5h used ≥85% or week used ≥90%; on a tie, pick the eligible vendor with more headroom. In a cross-vendor review with only one eligible vendor, warn only. Record every switch in `REPORT.md`.
+3. Parallel writers each get their own worktree — never two writers in one tree. See "Parallel + merge".
+4. Never trust the agent's summary: run the tests and read `git diff` yourself before accepting.
+5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
+6. Whoever creates a worktree/branch/server owns merging and cleanup. Workers never merge or clean. A sub-orchestrator hands up only a merged, tested, clean area branch. You (root) finish into master via superpowers:finishing-a-development-branch, stop the dashboard (`dashboard.sh stop <repo>`), and keep `.agents/` logs (git-excluded).
+7. Don't end your turn while a worktree, task branch or server you created still exists — unless the user asked to keep it. Check: `git worktree list`, `git branch`, background tasks.
 
 ## Parallel + merge
 
