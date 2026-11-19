@@ -19,6 +19,15 @@ fi
 mkdir -p "$dir"
 cp "$here/dashboard.html" "$dir/dashboard.html"   # always refresh to the skill's latest page
 touch "$dir/status.jsonl"
+QUOTA_PATH=$(PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'import quota; print(quota.QUOTA_PATH)')
+case "$QUOTA_PATH" in
+  /*) ;;
+  *) QUOTA_PATH="$PWD/$QUOTA_PATH" ;;
+esac
+python3 "$here/quota.py" seed || true
+mkdir -p "$(dirname "$QUOTA_PATH")"
+[ -f "$QUOTA_PATH" ] || printf '{}\n' > "$QUOTA_PATH"
+ln -sfn "$QUOTA_PATH" "$dir/quota.json"
 excl="$(git -C "$repo" rev-parse --git-common-dir)/info/exclude"
 mkdir -p "$(dirname "$excl")"; grep -qx '.agents/' "$excl" 2>/dev/null || echo '.agents/' >> "$excl"
 

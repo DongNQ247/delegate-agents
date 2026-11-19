@@ -124,7 +124,7 @@ def pick(preferred, eligible, now, data=None):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "seed":
-        result = codex_from_rollout()
+        result = codex_from_rollout(sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions"))
         if result:
             update("codex", result[0], result[1], result[2])
         return 0
