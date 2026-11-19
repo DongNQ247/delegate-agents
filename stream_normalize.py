@@ -111,8 +111,6 @@ def _agy(obj, now):
             else:
                 result = info.get("output", "") if isinstance(info, dict) else ""
                 events.append(_event("tool_result", now, result, result))
-        elif step_type == "agent_response" and state == "DONE":
-            events.append(_event("message", now, step.get("text", step.get("text_delta", ""))))
     elif kind == "result":
         result = obj.get("result", {})
         final_text = result.get("response")
@@ -139,7 +137,8 @@ def _write_event(stream, event):
 
 
 def _write_codex_quota(thread_id):
-    snapshot = quota.codex_from_rollout(thread_id)
+    sessions_dir = os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions")
+    snapshot = quota.codex_from_rollout(thread_id, sessions_dir=sessions_dir)
     if snapshot:
         quota.update("codex", snapshot[0], snapshot[1], snapshot[2])
 
@@ -153,6 +152,7 @@ def main(argv=None):
     events_path = os.path.join(agents_dir, f"{agent_id}.events.jsonl")
     out_path = os.path.join(agents_dir, f"{agent_id}.out")
     thread_id = None
+    agy_responses = {}
     last_codex_poll = time.monotonic()
     final_text = None
     try:
@@ -185,6 +185,20 @@ def main(argv=None):
                         continue
                     now = time.time()
                     new_events, text, hint = normalize(agent, obj, now)
+                    if agent == "agy" and obj.get("event") == "step_update":
+                        step = obj.get("step_update", {})
+                        if step.get("step_type") == "agent_response":
+                            step_index = step.get("step_index")
+                            if step.get("state") == "ACTIVE":
+                                agy_responses[step_index] = agy_responses.get(step_index, "") + (
+                                    step.get("text_delta") or ""
+                                )
+                            elif step.get("state") == "DONE":
+                                response = agy_responses.pop(step_index, "")
+                                if not response.strip():
+                                    response = step.get("text") or step.get("text_delta") or ""
+                                if response.strip():
+                                    new_events.append(_event("message", now, response))
                     for event in new_events:
                         _write_event(events, event)
                     if text is not None:

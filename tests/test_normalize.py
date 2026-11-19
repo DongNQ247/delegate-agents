@@ -55,11 +55,22 @@ def test_codex_fixture_normalizes_command_message_end_and_thread():
     }
 
 
-def test_agy_fixture_normalizes_tools_and_final_text():
+def test_agy_fixture_normalizes_tools_and_final_text(tmp_path):
     events, final_text, _ = normalize_rows("agy", fixture_rows("agy"))
 
     assert sum(event["kind"] == "tool" for event in events) >= 2
     assert final_text.startswith("All 92 tests passed")
+
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "stream_normalize.py"), "agy", "agent-message", str(tmp_path)],
+        input=(FIXTURES / "agy.jsonl").read_text(encoding="utf-8"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    emitted = [json.loads(line) for line in (tmp_path / "agent-message.events.jsonl").read_text().splitlines()]
+    assert any(event["kind"] == "message" and event["text"].strip() for event in emitted)
 
 
 def test_agent_message_text_is_truncated_to_2000_characters():
@@ -80,6 +91,10 @@ def test_main_skips_non_json_lines_and_preserves_prompt_and_raw_input(tmp_path):
     input_text = "warning: banner\n" + fixture
     env = os.environ.copy()
     env["AGENT_PROMPT"] = "hi"
+    env["DELEGATE_QUOTA"] = str(tmp_path / "quota.json")
+    sessions_dir = tmp_path / "empty-codex-sessions"
+    sessions_dir.mkdir()
+    env["DELEGATE_CODEX_SESSIONS"] = str(sessions_dir)
     result = subprocess.run(
         [sys.executable, str(ROOT / "stream_normalize.py"), "codex", "agent-1", str(tmp_path)],
         input=input_text,
@@ -95,6 +110,27 @@ def test_main_skips_non_json_lines_and_preserves_prompt_and_raw_input(tmp_path):
     assert events[0]["kind"] == "prompt"
     assert events[0]["text"] == "hi"
     assert len(raw_lines) == len(input_text.splitlines())
+
+
+def test_main_uses_codex_sessions_directory_override(tmp_path, monkeypatch):
+    import stream_normalize
+
+    sessions_dir = tmp_path / "codex-sessions"
+    sessions_dir.mkdir()
+    quota_path = tmp_path / "quota.json"
+    monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(sessions_dir))
+    monkeypatch.setenv("DELEGATE_QUOTA", str(quota_path))
+    called = []
+
+    def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
+        called.append((thread_id, sessions_dir))
+        return None
+
+    monkeypatch.setattr(stream_normalize.quota, "codex_from_rollout", codex_from_rollout)
+    monkeypatch.setattr(sys, "stdin", io.StringIO((FIXTURES / "codex.jsonl").read_text(encoding="utf-8")))
+    stream_normalize.main(["codex", "agent-sessions", str(tmp_path)])
+
+    assert called == [("01a1f2e8-3f38-7870-859a-846c5929cfb3", str(sessions_dir))]
 
 
 def test_main_drains_stdin_after_a_line_error(tmp_path, monkeypatch):
