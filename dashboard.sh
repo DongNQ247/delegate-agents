@@ -10,7 +10,26 @@ dir="$repo/.agents"; pidf="$dir/server.pid"; portf="$dir/server.port"; here=$(di
 
 alive() { [ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null; }
 
+quota_path() {
+  value=$(PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'import quota; print(quota.QUOTA_PATH)')
+  case "$value" in
+    /*) printf '%s\n' "$value" ;;
+    *) printf '%s/%s\n' "$PWD" "$value" ;;
+  esac
+}
+
 if [ "$cmd" = stop ]; then
+  server_pid=$(cat "$pidf" 2>/dev/null || true)
+  quota_path=$(quota_path)
+  refresher_pidf="$(dirname "$quota_path")/refresher.pid"
+  if [ -n "$server_pid" ] && [ -f "$refresher_pidf" ]; then
+    refresher_pid=$(sed -n '1p' "$refresher_pidf")
+    bound_server_pid=$(sed -n '2p' "$refresher_pidf")
+    if [ "$bound_server_pid" = "$server_pid" ]; then
+      kill "$refresher_pid" 2>/dev/null || true
+      rm -f "$refresher_pidf"
+    fi
+  fi
   alive && kill "$(cat "$pidf")" && echo "dashboard stopped" || echo "dashboard not running"
   rm -f "$pidf" "$portf"; exit 0
 fi
@@ -19,11 +38,7 @@ fi
 mkdir -p "$dir"
 cp "$here/dashboard.html" "$dir/dashboard.html"   # always refresh to the skill's latest page
 touch "$dir/status.jsonl"
-QUOTA_PATH=$(PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" python3 -c 'import quota; print(quota.QUOTA_PATH)')
-case "$QUOTA_PATH" in
-  /*) ;;
-  *) QUOTA_PATH="$PWD/$QUOTA_PATH" ;;
-esac
+QUOTA_PATH=$(quota_path)
 python3 "$here/quota.py" seed || true
 mkdir -p "$(dirname "$QUOTA_PATH")"
 [ -f "$QUOTA_PATH" ] || printf '{}\n' > "$QUOTA_PATH"
@@ -40,6 +55,18 @@ if ! alive; then
   echo $! > "$pidf"
   echo "$port" > "$portf"
   for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/dashboard.html" && break; sleep 0.3; done
+fi
+
+# Refresh immediately, then keep one user-scoped refresher bound to this server.
+python3 "$here/quota.py" agy-refresh || true
+refresher_pidf="$(dirname "$QUOTA_PATH")/refresher.pid"
+server_pid=$(cat "$pidf")
+refresher_pid=$(sed -n '1p' "$refresher_pidf" 2>/dev/null || true)
+if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null; then
+  interval=${DELEGATE_AGY_INTERVAL:-300}
+  setsid sh -c 'while kill -0 "$1" 2>/dev/null; do python3 "$2" agy-refresh; sleep "$3"; done' sh "$server_pid" "$here/quota.py" "$interval" </dev/null >/dev/null 2>&1 &
+  refresher_pid=$!
+  printf '%s\n%s\n' "$refresher_pid" "$server_pid" > "$refresher_pidf"
 fi
 url="http://localhost:$(cat "$portf")/dashboard.html"
 
