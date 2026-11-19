@@ -236,6 +236,29 @@ def test_agy_refresh_cli_with_fake_bin(monkeypatch, tmp_path, capsys):
     assert (tmp_path / "q.json").read_text() == before
 
 
+def test_agy_refresh_non_utf8_is_silent_and_pick_continues(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fake = tmp_path / "agy"
+    fake.write_text("#!/bin/sh\nprintf '\\377\\376'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
+
+    assert q.main(["agy-refresh"]) == 0
+    assert capsys.readouterr().out == ""
+
+    assert q.main(["pick", "codex", "codex", "agy:gemini-3.8-flash-low"]) == 0
+    assert capsys.readouterr().out == "codex\tcapability\n"
+
+
+def test_parse_agy_usage_reworded_window_name(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    usage = "Gemini Models v2\tFive Hour Limit\t97%\t2026-11-19T12:04:26Z\n"
+
+    pools = q.parse_agy_usage(usage)
+
+    assert pools["gemini"]["five_hour"]["used"] == .03
+
+
 def test_agy_refresh_if_older_skips_fresh(monkeypatch, tmp_path, capsys):
     q = module(monkeypatch, tmp_path / "q.json")
     q.update_agy({"claude_gpt": {"five_hour": {"used": .1}}, "gemini": {"five_hour": {"used": .2}}}, 90)

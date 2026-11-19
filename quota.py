@@ -95,14 +95,21 @@ def update_agy(pools, updated):
 
 def parse_agy_usage(text):
     pools = {}
-    pool_names = {"Gemini Models": "gemini", "Claude and GPT models": "claude_gpt"}
-    window_names = {
-        "Weekly Limit Remaining": "week",
-        "Five Hour Limit Remaining": "five_hour",
-    }
     for line in text.splitlines():
         fields = line.split("\t")
-        if len(fields) != 4 or fields[0] not in pool_names or fields[1] not in window_names:
+        if len(fields) != 4:
+            continue
+        if fields[0].startswith("Gemini Models"):
+            pool = "gemini"
+        elif fields[0].startswith("Claude and GPT models"):
+            pool = "claude_gpt"
+        else:
+            continue
+        if fields[1].startswith("Weekly"):
+            window = "week"
+        elif fields[1].startswith("Five Hour"):
+            window = "five_hour"
+        else:
             continue
         match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)%\s*", fields[2])
         if not match:
@@ -111,7 +118,7 @@ def parse_agy_usage(text):
             resets_at = datetime.fromisoformat(fields[3].replace("Z", "+00:00")).timestamp()
         except (ValueError, OverflowError):
             continue
-        pools.setdefault(pool_names[fields[0]], {})[window_names[fields[1]]] = {
+        pools.setdefault(pool, {})[window] = {
             "used": round(1 - float(match.group(1)) / 100, 10),
             "resets_at": resets_at,
         }
@@ -144,7 +151,7 @@ def agy_refresh(if_older=None, now=None):
     try:
         result = subprocess.run(
             [command, "-p", "/usage"], capture_output=True, text=True,
-            timeout=30, check=False,
+            errors="replace", timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
