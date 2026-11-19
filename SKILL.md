@@ -89,7 +89,7 @@ Effort by task:
 | Large-codebase read / summary / research | medium | agy `gemini-3.8-flash-high` (big context, fast) |
 | Second review of another vendor's code | high | whichever vendor did NOT write it |
 
-agy also serves Claude models on Google quota — use them to spend agy tokens on Claude-quality work.
+agy model quota is routed by pool: `gemini-*` uses Gemini; `claude-*` and `gpt-*` use Claude & GPT. Apply the same switch thresholds as other vendors: 5h ≥85% or week ≥90%.
 Don't ask a worker which model it is: self-reports are wrong (Codex pinned to gpt-6-luna answered "GPT-6.2-Sol"). Trust the flag.
 agy fails fast on an unknown slug (prints the model list) — no silent fallback.
 
@@ -124,8 +124,9 @@ bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker.
 - Full worker output: `$R/.agents/<id>.out`.
-- Before each dispatch, choose by capability first, then run `python3 ~/.claude/skills/delegate-agents/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
-- Worker streams create `.agents/<id>.events.jsonl`, `.agents/<id>.raw.jsonl`, and `.agents/<id>.err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The Claude card shows “no data yet” until a Claude worker streams a `rate_limit_event`; do not make probe calls.
+- `/usage` is free (no model call). The dashboard refreshes it every 5 minutes through one per-user refresher; `pick` refreshes it when the data is older than 5 minutes. State files are `state/quota.json` and `state/refresher.pid`. Tests can override the agy executable and interval with `DELEGATE_AGY_BIN` and `DELEGATE_AGY_INTERVAL`.
+- Before each dispatch, choose by capability first, then run `python3 ~/.claude/skills/delegate-agents/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. Include agy candidates as `agy:<model>`, e.g. `python3 ~/.claude/skills/delegate-agents/quota.py pick claude claude codex agy:claude-sonnet-4-6`. `gemini-*` uses the Gemini pool; `claude-*` and `gpt-*` use the Claude & GPT pool. Bare `agy` and unknown model names have unknown quota and are never switch targets. Two agy models count as one vendor for cross-vendor review. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
+- Worker streams create `.agents/<id>.events.jsonl`, `.agents/<id>.raw.jsonl`, and `.agents/<id>.err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The dashboard defaults to the running status chip and also filters done, failed, or all agents; quota cards are yellow, green, or red and agy has Gemini and Claude & GPT pools.
 - `DELEGATE_QUOTA` and `DELEGATE_CODEX_SESSIONS` are test-only environment overrides.
 - Sub-orchestrator (claude) launching children: headless Claude blocks compound commands (`export …; (… & …)` → "can't be checked before it runs"). Give it `ALLOWED_TOOLS="Bash(MODE=ro bash <run-agent path>:*)"` (or without `MODE=ro`) and tell it to send one Bash call per child, in parallel, no cd/export. AGENTS_LOG is inherited.
 
@@ -134,13 +135,13 @@ bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 | Task | Send to |
 |---|---|
 | Well-specified implementation task from a plan | Codex |
-| Read/summarize a large codebase, research, second review | agy |
+| Read/summarize a large codebase, research, second review | agy (route as `agy:<model>` for quota-aware picks) |
 | Planning, architecture, hard debugging, final review, merge conflicts | Claude (this session) |
 
 ## Rules
 
 1. Each task prompt is self-contained: goal, files, acceptance check (test command), "reply with a one-line summary".
-2. Route by capability first. Switch vendors only when the preferred vendor has 5h used ≥85% or week used ≥90%; on a tie, pick the eligible vendor with more headroom. In a cross-vendor review with only one eligible vendor, warn only. Record every switch in `REPORT.md`.
+2. Route by capability first. agy shares routing by pool: `gemini-*` uses Gemini; `claude-*` and `gpt-*` use Claude & GPT. Switch vendors only when the preferred pool/vendor has 5h used ≥85% or week used ≥90%; on a tie, pick the eligible vendor with more headroom. A bare `agy` or unknown model has unknown quota and cannot be a switch target. In a cross-vendor review, two agy models count as one vendor; with only one eligible vendor, warn only. Record every switch in `REPORT.md`.
 3. Parallel writers each get their own worktree — never two writers in one tree. See "Parallel + merge".
 4. Never trust the agent's summary: run the tests and read `git diff` yourself before accepting.
 5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
