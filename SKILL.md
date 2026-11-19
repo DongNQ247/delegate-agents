@@ -25,7 +25,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 - A Stop hook (`lessons-hook.py`, in `~/.claude/settings.json`) blocks your first stop once per session if `run-agent.sh` was used and LESSONS.md wasn't handled afterwards, or if a `git merge` happened and `.agents/REPORT.md` wasn't handled afterwards. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 test_lessons_hook.py`.
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
-**Where this fits superpowers:** in superpowers:subagent-driven-development, this skill is how you *dispatch the implementer* to Codex/agy instead of a Claude subagent. Keep that skill's per-task spec-compliance review and code-quality review — do them yourself or send them cross-vendor (Rules 4). Worktrees: superpowers:using-git-worktrees; parallel dispatch: superpowers:dispatching-parallel-agents.
+**Where this fits superpowers:** in superpowers:subagent-driven-development, this skill is how you *dispatch the implementer* to Codex/agy instead of a Claude subagent. Keep that skill's per-task spec-compliance review and code-quality review — do them yourself or send them cross-vendor (rule 5). Worktrees: superpowers:using-git-worktrees; parallel dispatch: superpowers:dispatching-parallel-agents.
 Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin list`), so prompt them to use it: "Use superpowers:test-driven-development." 
 `codex mcp-server` no longer exists (codex-cli ≥0.170) and agy has no MCP server — use the CLI.
 
@@ -116,7 +116,7 @@ agy fails fast on an unknown slug (prints the model list) — no silent fallback
 bash ~/.claude/skills/delegate-agents/dashboard.sh start <abs repo>   # idempotent; opens the browser; prints AGENTS_LOG=… and the URL
 # each worker (parallel: one `&` per line, then wait):
 AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ~/.claude/skills/delegate-agents/run-agent.sh <codex|agy|claude> <model> <effort|-> <abs worktree> <id> <parent-id|-> "<prompt>"
-# end of run (rule 5):
+# end of run (rule 6):
 bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 ```
 - `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
