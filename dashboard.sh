@@ -54,7 +54,6 @@ mkdir -p "$dir"
 cp "$here/dashboard.html" "$dir/dashboard.html"   # always refresh to the skill's latest page
 touch "$dir/status.jsonl"
 QUOTA_PATH=$(quota_path)
-python3 "$here/quota.py" seed || true
 mkdir -p "$(dirname "$QUOTA_PATH")"
 [ -f "$QUOTA_PATH" ] || printf '{}\n' > "$QUOTA_PATH"
 ln -sfn "$QUOTA_PATH" "$dir/quota.json"
@@ -79,7 +78,7 @@ refresher_pid=$(sed -n '1p' "$refresher_pidf" 2>/dev/null || true)
 if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null; then
   interval=${DELEGATE_AGY_INTERVAL:-300}
   refresher_marker="dashboard-refresher:$(dirname "$QUOTA_PATH")"
-  setsid sh -c 'while :; do python3 "$3" agy-refresh; sleep "$4"; server_pids=$(sed -n "2p" "$5" 2>/dev/null); alive=0; for pid in $server_pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done; [ "$alive" -eq 1 ] || exit; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" "$refresher_pidf" </dev/null >/dev/null 2>&1 &
+  setsid sh -c 'while :; do python3 "$3" refresh-all; sleep "$4"; server_pids=$(sed -n "2p" "$5" 2>/dev/null); alive=0; for pid in $server_pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done; [ "$alive" -eq 1 ] || exit; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" "$refresher_pidf" </dev/null >/dev/null 2>&1 &
   refresher_pid=$!
   server_pids=$server_pid
   write_refresher_state
