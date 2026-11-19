@@ -5,8 +5,8 @@ const html = fs.readFileSync('dashboard.html', 'utf8');
 const match = html.match(/\/\/ <pure>([\s\S]*?)\/\/ <\/pure>/);
 assert.ok(match, 'dashboard.html must expose pure functions');
 const context = { window: {} };
-vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError};', context);
-const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError} = context.window.api;
+vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView};', context);
+const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView} = context.window.api;
 assert.equal(eventFetchError('a.events.jsonl', '404'), '');
 assert.equal(eventFetchError('quota.json', '404'), '404');
 assert.equal(quotaLevel(0.69, '5h'), 'ok');
@@ -30,4 +30,26 @@ assert.deepEqual(Array.from(rootAgents({
 }), a => a.id), ['root', 'orphan']);
 assert.deepEqual(Array.from(eventsFromResponse(null), e => e.kind), []);
 assert.deepEqual(Array.from(eventsFromResponse('{"kind":"message"}'), e => e.kind), ['message']);
+assert.equal(statusGroup('timeout'), 'failed');
+assert.equal(statusGroup('done'), 'done');
+const filteredAgents = {
+  p: {id:'p', status:'done', parent:'-'},
+  c: {id:'c', status:'running', parent:'p'},
+  f: {id:'f', status:'failed', parent:'p'}
+};
+assert.deepEqual(Array.from(filterTree(filteredAgents, 'running')).sort(), ['c', 'p']);
+assert.deepEqual(Array.from(filterTree(filteredAgents, 'failed')).sort(), ['f', 'p']);
+assert.deepEqual(Array.from(filterTree(filteredAgents, 'all')).sort(), ['c', 'f', 'p']);
+const siblings = [
+  {id:'done', status:'done', start:70, end:100},
+  {id:'run10', status:'running', start:90},
+  {id:'failed', status:'failed', start:0, end:1},
+  {id:'run100', status:'running', start:0}
+];
+assert.deepEqual(Array.from(sortSiblings(siblings, 100), a => a.id), ['run100', 'run10', 'failed', 'done']);
+assert.deepEqual({...counts({a:{status:'running'},b:{status:'timeout'},c:{status:'done'}})}, {running:1, done:1, failed:1, all:3});
+const pool = agyPoolView({five_hour:{used:0.17, resets_at:200}, updated:100}, 150);
+assert.equal(pool.five_hour.level, 'ok');
+assert.equal(pool.week, null);
+assert.equal(agyPoolView({five_hour:{used:0.17, resets_at:100}, updated:50}, 150), null);
 console.log('ok');
