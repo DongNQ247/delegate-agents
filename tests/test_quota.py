@@ -4,6 +4,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import stat
 
 import pytest
 
@@ -136,7 +137,8 @@ def test_pick_agy_is_fallback_only():
     import quota
     def ent(used):
         return {"five_hour":{"used":used,"resets_at":100},"week":{"used":used,"resets_at":100}}
-    assert quota.pick("claude", ["claude", "codex", "agy"], 1, {"claude":ent(.9),"codex":ent(.91)})[0] == "agy"
+    data = {"claude":ent(.9), "codex":ent(.91), "agy":{"claude_gpt":ent(.2)}}
+    assert quota.pick("claude", ["claude", "codex", "agy:claude-sonnet-4-6"], 1, data)[0] == "agy"
     assert quota.pick("claude", ["claude", "codex", "agy"], 1, {"claude":ent(.9),"codex":ent(.2)})[0] == "codex"
 
 
@@ -163,3 +165,137 @@ def test_cli_pick_and_seed(monkeypatch, tmp_path, capsys):
     assert capsys.readouterr().out.startswith("codex\tswitched from claude:")
     assert q.main(["seed"]) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_parse_agy_usage_real(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    pools = q.parse_agy_usage(open("tests/fixtures/agy-usage.txt", encoding="utf-8").read())
+    assert pools["claude_gpt"]["five_hour"]["used"] == .17
+    assert pools["claude_gpt"]["week"]["used"] == .08
+    assert pools["gemini"]["five_hour"]["used"] == .03
+    assert pools["gemini"]["week"]["used"] == .01
+    assert pools["gemini"]["five_hour"]["resets_at"] == datetime.datetime(
+        2026, 11, 19, 12, 4, 26, tzinfo=datetime.timezone.utc
+    ).timestamp()
+
+
+def test_parse_agy_usage_partial_and_garbage(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    partial = open("tests/fixtures/agy-usage-partial.txt", encoding="utf-8").read()
+    assert set(q.parse_agy_usage(partial)) == {"gemini"}
+    assert set(q.parse_agy_usage(partial)["gemini"]) == {"five_hour", "week"}
+    assert q.parse_agy_usage(open("tests/fixtures/agy-usage-garbage.txt", encoding="utf-8").read()) == {}
+    assert q.parse_agy_usage(open("tests/fixtures/agy-usage-empty.txt", encoding="utf-8").read()) == {}
+    week_only = "Gemini Models\tWeekly Limit Remaining\t99%\t2026-11-26T07:04:26Z\n"
+    assert q.parse_agy_usage(week_only) == {}
+
+
+def test_update_agy_merges_and_keeps_others(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    codex = {"five_hour": {"used": .1, "resets_at": 1000}, "week": {"used": .2, "resets_at": 2000}}
+    q.update("codex", codex["five_hour"], codex["week"], 50)
+    claude_gpt = {"five_hour": {"used": .17, "resets_at": 3000}, "week": {"used": .08, "resets_at": 4000}}
+    gemini = {"five_hour": {"used": .03, "resets_at": 5000}, "week": {"used": .01, "resets_at": 6000}}
+    q.update_agy({"claude_gpt": claude_gpt, "gemini": gemini}, 100)
+    q.update_agy({"claude_gpt": {"five_hour": {"used": .9}}}, 99)
+    q.update_agy({"gemini": {"five_hour": {"used": .04}}}, 101)
+    data = q.load()
+    assert data["codex"]["updated"] == 50
+    assert data["agy"]["claude_gpt"] == {**claude_gpt, "updated": 100}
+    assert data["agy"]["gemini"]["five_hour"] == {"used": .04}
+    assert data["agy"]["gemini"]["week"] == gemini["week"]
+    assert data["agy"]["gemini"]["updated"] == 101
+    assert q.agy_oldest_update(data) == 100
+    assert q.agy_oldest_update({"agy": {"gemini": {"updated": 101}}}) is None
+    q.update_agy({"gemini": gemini}, 102)
+    assert "claude_gpt" in q.load()["agy"]
+
+
+def test_agy_pool(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    assert q.agy_pool("gemini-3.8-flash-low") == "gemini"
+    assert q.agy_pool("claude-sonnet-4-6") == "claude_gpt"
+    assert q.agy_pool("gpt-oss-120b-medium") == "claude_gpt"
+    assert q.agy_pool("foo") is None
+
+
+def test_agy_refresh_cli_with_fake_bin(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fake = tmp_path / "agy"
+    fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
+    assert q.main(["agy-refresh"]) == 0
+    assert capsys.readouterr().out == ""
+    assert set(q.load()["agy"]) == {"gemini", "claude_gpt"}
+
+    before = (tmp_path / "q.json").read_text()
+    monkeypatch.setenv("DELEGATE_AGY_BIN", "/nonexistent")
+    assert q.main(["agy-refresh"]) == 0
+    assert (tmp_path / "q.json").read_text() == before
+
+
+def test_agy_refresh_if_older_skips_fresh(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    q.update_agy({"claude_gpt": {"five_hour": {"used": .1}}, "gemini": {"five_hour": {"used": .2}}}, 90)
+    marker = tmp_path / "ran"
+    fake = tmp_path / "agy"
+    fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat tests/fixtures/agy-usage.txt\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
+    monkeypatch.setattr(q.time, "time", lambda: 100)
+    assert q.main(["agy-refresh", "--if-older", "300"]) == 0
+    assert capsys.readouterr().out == ""
+    assert not marker.exists()
+
+
+def test_cli_pick_refreshes_agy_before_routing(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    data = {
+        "claude": {"five_hour": {"used": .9, "resets_at": 9999999999}, "week": {"used": .1}},
+        "agy": {
+            "claude_gpt": {"five_hour": {"used": .9, "resets_at": 9999999999}, "week": {"used": .1}, "updated": 1},
+            "gemini": {"five_hour": {"used": .1, "resets_at": 9999999999}, "week": {"used": .1}, "updated": 1},
+        },
+    }
+    (tmp_path / "q.json").write_text(json.dumps(data))
+    fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    marker = tmp_path / "ran"
+    fake = tmp_path / "agy"
+    fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat '{fixture}'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
+    assert q.main(["pick", "claude", "claude", "agy:gemini-3.8-flash-low"]) == 0
+    assert marker.exists()
+    output = capsys.readouterr().out
+    assert output.startswith("agy\tswitched from claude:")
+
+
+def test_pick_agy_switch_target_by_pool(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    data = {
+        "claude": {"five_hour": {"used": .9, "resets_at": 100}, "week": {"used": .1}},
+        "agy": {"claude_gpt": {"five_hour": {"used": .2, "resets_at": 100}, "week": {"used": .1}}},
+    }
+    assert q.pick("claude", ["claude", "agy:claude-sonnet-4-6"], 1, data)[0] == "agy"
+
+
+def test_pick_agy_unknown_never_target(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    data = {"claude": {"five_hour": {"used": .9, "resets_at": 100}, "week": {"used": .1}}}
+    for unknown in ("agy:foo", "agy"):
+        vendor, reason = q.pick("claude", ["claude", unknown], 1, data)
+        assert vendor == "claude"
+        assert reason.startswith("warning:")
+
+
+def test_pick_preferred_agy_near_limit_switches(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    data = {
+        "agy": {"gemini": {"five_hour": {"used": .9, "resets_at": 100}, "week": {"used": .1}}},
+        "codex": {"five_hour": {"used": .1, "resets_at": 100}, "week": {"used": .1}},
+    }
+    vendor, reason = q.pick("agy:gemini-3.8-flash-low", ["agy:gemini-3.8-flash-low", "codex"], 1, data)
+    assert vendor == "codex"
+    assert "agy/gemini" in reason
