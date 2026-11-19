@@ -1,109 +1,91 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Dashboard</title>
-<style>
-:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--mute:#6b6b66;--line:#e4e4df;
- --codex:#2f6fde;--agy:#d9822b;--claude:#b4572e;--ok:#2e8b57;--bad:#c0392b;--run:#7a5af5}
-@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--fg:#ececea;--mute:#9a9a94;--line:#33332f}}
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet"><style>
+:root{--ink:#26231f;--ink2:#5b554c;--line:#d9cfbf;--bg:#efe8dc;--paper:#f8f4ec;--card:#fbf8f2;--mut:#8a8173;
+ --claude:#d97757;--codex:#26231f;--google:#4285f4;--ok:#6fae5a;--warn:#e6b84a;--hot:#e0564b;
+ --chipY:#f6e7a8;--chipG:#d6ebc4;--chipL:#e1dcf5;--chipR:#f7dcd8}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;padding:16px}
-h1{font-size:18px;margin:0 0 12px}
-.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:100px}
-.stat b{display:block;font-size:24px}
-.stat span{color:var(--mute);font-size:12px}
-.row{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:8px;
- padding:10px 12px;margin-bottom:8px;display:grid;grid-template-columns:1fr auto;gap:4px 12px}
-.kids{margin-left:22px;padding-left:12px;border-left:2px dashed var(--line)}
-.mgr{font-size:12px;color:var(--mute)}
-.root{border-left-color:var(--fg)}
-.top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.agent{color:var(--c);font-weight:600}
-.meta,.task{color:var(--mute);font-size:12px;overflow-wrap:anywhere}
-.badge{font-size:12px;padding:1px 8px;border-radius:99px;color:#fff;background:var(--s)}
-.time{font-variant-numeric:tabular-nums;text-align:right}
-.sum{grid-column:1/-1;font-size:13px;overflow-wrap:anywhere}
-.empty{color:var(--mute)}
-.err{color:var(--bad)}
-</style>
-</head>
-<body>
-<h1>Agents</h1>
-<div class="stats" id="stats"></div>
-<div id="list"><p class="empty">No agents yet. Waiting for status.jsonl…</p></div>
+body{margin:0;font-family:"JetBrains Mono",ui-monospace,monospace;color:var(--ink);background:var(--bg);font-size:13px}
+.grid{background-color:var(--paper);background-image:linear-gradient(30deg,#00000008 1px,transparent 1px),linear-gradient(150deg,#00000008 1px,transparent 1px);background-size:34px 20px}
+header{display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--bg)}
+.logo{width:32px;height:32px;border:2px solid var(--ink);border-radius:8px;display:grid;place-items:center;font-weight:700;background:var(--chipG)}
+h1{margin:0;font-size:19px;font-weight:700}
+h1 i{font-style:normal;background:var(--chipG);padding:0 4px;border-radius:4px}
+.sub{font-size:11px;color:var(--mut)}
+.right{margin-left:auto;display:flex;gap:8px}
+.btn{border:1.5px solid var(--ink);border-radius:8px;background:var(--card);color:var(--ink);padding:5px 10px;font:inherit;font-size:11px;box-shadow:2px 2px 0 var(--ink)}
+.btn.on{background:var(--chipG)}
+.quota{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:14px 18px;background:var(--bg)}
+.qc{border:1.5px solid var(--ink);border-radius:12px;background:var(--card);padding:10px 12px;box-shadow:3px 3px 0 var(--ink);position:relative}
+.qc:before{content:"";position:absolute;left:12px;right:12px;top:-1px;height:4px;border-radius:0 0 4px 4px;background:var(--c)}
+.qh{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px}
+.mark{width:26px;height:26px;display:grid;place-items:center;border:1.5px solid var(--ink);border-radius:7px;background:#fff}
+.qr{display:flex;justify-content:space-between;font-size:11px;margin-top:9px;color:var(--mut)}
+.qr b{color:var(--ink);background:var(--chipY);padding:0 6px;border-radius:6px;border:1px solid var(--ink)}
+.bar{height:9px;border:1.5px solid var(--ink);border-radius:6px;margin-top:4px;background:#fff;overflow:hidden}
+.bar i{display:block;height:100%}
+.ok{background:var(--ok)}.warn{background:var(--warn)}.hot{background:var(--hot)}
+.unk{font-size:11px;color:var(--mut);margin-top:10px;line-height:1.6}
+main{display:grid;grid-template-columns:1fr 420px;gap:14px;padding:0 18px 18px;min-height:520px;background:var(--bg)}
+.pane{border:1.5px solid var(--line);border-radius:14px;position:relative;overflow:hidden;background:var(--paper)}
+.ph{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--card);font-weight:700}
+.ph .cnt{margin-left:auto;font-size:11px;font-weight:400}
+.ph .cnt span{border:1px solid var(--ink);border-radius:7px;padding:1px 7px;margin-left:4px}
+.tree{padding:16px}
+.node{background:var(--card);border:1.5px solid var(--ink);border-radius:10px;padding:8px 10px;margin:8px 0;cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:3px 10px;align-items:center;box-shadow:2px 2px 0 var(--c)}
+.node:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--c)}
+.node.sel{background:var(--chipG);box-shadow:3px 3px 0 var(--ink)}
+.node .id{font-weight:700}
+.node .meta{font-size:11px;color:var(--mut)}
+.node .act{grid-column:2/4;font-size:11px;color:var(--ink2)}
+.node .sw{grid-column:2/4;font-size:11px;background:var(--chipR);border:1px solid var(--hot);border-radius:6px;padding:2px 6px;justify-self:start}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--s);border:1.5px solid var(--ink)}
+.run{--s:var(--warn);animation:pulse 1.2s infinite}@keyframes pulse{50%{opacity:.35}}
+.done{--s:var(--ok)}.fail{--s:var(--hot)}
+.kids{margin-left:22px;padding-left:14px;border-left:2px dotted var(--mut)}
+.time{font-size:11px;border:1px solid var(--ink);border-radius:7px;padding:1px 7px;background:#fff}
+.panel .tabs{display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--card)}
+.tab{padding:5px 10px;font-size:11px;border:1.5px solid var(--ink);border-radius:8px;cursor:pointer;background:#fff}
+.tab.on{background:var(--chipG);box-shadow:2px 2px 0 var(--ink)}
+.pbody{padding:14px;font-size:12px;line-height:1.55;max-height:470px;overflow:auto}
+.ev{border-left:2px dotted var(--mut);padding:2px 0 10px 12px;position:relative}
+.ev:before{content:"";position:absolute;left:-6px;top:6px;width:9px;height:9px;border-radius:50%;background:var(--warn);border:1.5px solid var(--ink)}
+.ev .t{color:var(--mut);font-size:10px}
+.ev code{display:block;background:#fff;border:1.5px solid var(--ink);border-radius:8px;padding:5px 7px;margin-top:4px;white-space:pre-wrap}
+.msg{border:1.5px solid var(--ink);border-radius:10px;padding:8px;margin:8px 0;background:#fff}
+.msg.u{background:var(--chipL)}
+.msg .who{font-size:10px;color:var(--mut);font-weight:700}
+.note{font-size:11px;color:var(--mut);padding:8px 18px;background:var(--bg);margin:0}
+</style><style>
+main{grid-template-columns:minmax(0,1fr) 420px} @media(max-width:900px){main{grid-template-columns:1fr}.pbody{max-height:340px}}
+.node{cursor:pointer}.node.sel{background:var(--chipG)}.ev{overflow-wrap:anywhere}.empty{padding:16px;color:var(--mut)}
+</style></head><body>
+<header><div class="logo">◇</div><div><h1>Agent <i>Dashboard</i></h1><div class="sub">multi-agent · live</div></div><div class="right"><span id="updated" class="btn">updated —</span><span class="btn">⟳ 2s</span><span class="btn on">☀</span></div></header>
+<section class="quota" id="quota"></section><main><div class="pane grid"><div class="ph">Agent tree <span class="cnt" id="counts"></span></div><div class="tree" id="tree"><p class="empty">Waiting for status.jsonl…</p></div></div>
+<div class="pane panel" id="panel"><div class="ph"><span id="ptitle">Select an agent</span><span class="cnt" id="pmeta"></span><button class="btn" style="margin-left:auto" onclick="closePanel()">✕</button></div>
+<div class="tabs"><span class="tab on" onclick="showTab('log',this)">Live log</span><span class="tab" onclick="showTab('conv',this)">Conversation</span><span class="tab" onclick="showTab('task',this)">Task</span></div>
+<div class="pbody" id="log"></div><div class="pbody" id="conv" hidden></div><div class="pbody" id="task" hidden></div></div></main>
 <script>
-const COLORS = {codex:'var(--codex)', agy:'var(--agy)', claude:'var(--claude)'};
-const STATUS = {running:'var(--run)', done:'var(--ok)', failed:'var(--bad)', timeout:'var(--bad)'};
-let agents = {};
-
-function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function fmt(sec){ sec = Math.max(0, Math.round(sec)); return sec >= 60 ? `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s` : `${sec}s`; }
-
-// Merge start/end events per id: the last event wins per field, the first ts is the start time.
-function reduce(text){
-  const out = {};
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let e; try { e = JSON.parse(line); } catch { continue; }  // skip a half-written last line
-    const a = out[e.id] ??= {start: e.ts};
-    Object.assign(a, e);
-    if (e.status !== 'running') a.end = e.ts;
-  }
-  return out;
-}
-
-function row(a, kids){
-  const now = Date.now()/1000;
-  const secs = (a.end ?? now) - a.start;
-  return `<div class="row" style="--c:${COLORS[a.agent] || 'var(--mute)'}">
-    <div class="top"><span class="agent">${esc(a.agent)}</span><b>${esc(a.id)}</b>
-      <span class="badge" style="--s:${STATUS[a.status] || 'var(--mute)'}">${esc(a.status)}</span>
-      <span class="meta">${esc(a.model)}${a.effort && a.effort !== '-' ? ' · ' + esc(a.effort) : ''}${a.mode === 'ro' ? ' · read-only' : ''}</span>
-      ${kids ? `<span class="mgr">manages ${kids}</span>` : ''}</div>
-    <div class="time">${fmt(secs)}</div>
-    <div class="task">${esc(a.dir)} — ${esc(a.task)}</div>
-    ${a.summary ? `<div class="sum">${esc(a.summary)}</div>` : ''}
-  </div>`;
-}
-
-// Recursive: any depth (orchestrator -> sub-orchestrators -> workers).
-function tree(list, parentId){
-  return list.filter(a => a.parentKey === parentId).sort((a, b) => a.start - b.start).map(a => {
-    const kids = list.filter(c => c.parentKey === a.id).length;
-    return row(a, kids) + (kids ? `<div class="kids">${tree(list, a.id)}</div>` : '');
-  }).join('');
-}
-
-function render(){
-  const list = Object.values(agents);
-  if (!list.length) return;
-  const n = s => list.filter(a => a.status === s).length;
-  document.getElementById('stats').innerHTML =
-    [['Running', n('running')], ['Done', n('done')], ['Failed', n('failed') + n('timeout')], ['Total', list.length]]
-    .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
-  const ids = new Set(list.map(a => a.id));
-  // Unknown or missing parent -> managed directly by the orchestrator.
-  for (const a of list) a.parentKey = a.parent && a.parent !== '-' && ids.has(a.parent) ? a.parent : '__root';
-  const direct = list.filter(a => a.parentKey === '__root').length;
-  document.getElementById('list').innerHTML =
-    `<div class="row root"><div class="top"><span class="agent">claude</span><b>orchestrator</b>
-       <span class="meta">this Claude Code session</span><span class="mgr">manages ${direct}</span></div><div></div></div>
-     <div class="kids">${tree(list, '__root')}</div>`;
-}
-
-async function poll(){
-  try {
-    const res = await fetch('status.jsonl?t=' + Date.now());
-    if (res.ok) agents = reduce(await res.text());
-  } catch (e) {
-    document.getElementById('list').innerHTML = `<p class="err">Cannot read status.jsonl: open this page through an HTTP server, not file://</p>`;
-  }
-  render();
-}
-poll(); setInterval(poll, 2000);
-</script>
-</body>
-</html>
+// <pure>
+function parseJsonl(text){return text.split('\n').filter(x=>x.trim()).flatMap(x=>{try{return [JSON.parse(x)]}catch{return []}})}
+function reduceStatus(text){const out={};for(const e of parseJsonl(text)){if(!e.id)continue;const a=out[e.id]??={start:e.ts};Object.assign(a,e);if(e.status!=='running')a.end=e.ts}return out}
+function latestActivity(events){for(let i=events.length-1;i>=0;i--)if(events[i].kind!=='end')return events[i].text||'';return ''}
+function quotaLevel(used,window){return used >= (window==='5h'?.85:.90)?'hot':used>=.70?'warn':'ok'}
+function ageText(seconds){return seconds<60?'just now':seconds<3600?`${Math.floor(seconds/60)} min ago`:`${Math.floor(seconds/3600)} h ago`}
+function conversation(events){return events.filter(e=>['prompt','message','tool','tool_result'].includes(e.kind))}
+Object.assign(window,{parseJsonl,reduceStatus,latestActivity,quotaLevel,ageText,conversation});
+// </pure>
+const COLORS={claude:'var(--claude)',codex:'var(--codex)',agy:'var(--google)'};let agents={},quota={},selected='',events=[];let tabId='log';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function get(file){try{const r=await fetch(file+'?t='+Date.now());if(!r.ok)throw Error(r.status);return await r.text()}catch(e){return null}}
+function drawQuota(){const now=Date.now()/1000;document.getElementById('quota').innerHTML=['claude','codex','agy'].map(v=>{const q=quota[v],title=v==='agy'?'agy · Google':v[0].toUpperCase()+v.slice(1);if(v==='agy')return `<div class="qc" style="--c:var(--google)"><div class="qh">${title}</div><div class="unk">quota unknown · treated as moderate for routing</div></div>`;if(!q)return `<div class="qc"><div class="qh">${title}</div><div class="unk">no data yet</div></div>`;return `<div class="qc" style="--c:${COLORS[v]}"><div class="qh">${title}</div>${[['5h',q.five_hour],['week',q.week]].map(([w,d])=>{if(!d||d.resets_at<now)return `<div class="unk">${w}: no data yet</div>`;const p=Math.round(d.used*100),level=quotaLevel(d.used,w);return `<div class="qr"><span>${w.toUpperCase()} · resets ${new Date(d.resets_at*1000).toLocaleTimeString()}</span><b>${p}%</b></div><div class="bar"><i class="${level}" style="width:${Math.min(100,p)}%"></i></div>`}).join('')}<div class="unk">updated ${ageText(now-q.updated)}</div></div>`}).join('')}
+function node(a,kids){const run=a.status==='running',act=a.activity||'';return `<div class="node ${selected===a.id?'sel':''}" style="--c:${COLORS[a.agent]||'var(--ink)'}" onclick="selectAgent('${esc(a.id)}')"><span class="dot ${run?'run':a.status==='done'?'done':'fail'}"></span><span><span class="id">${esc(a.id)}</span> <span class="meta">${esc(a.agent)} · ${esc(a.model)} ${esc(a.effort||'')}</span></span><span class="time">${fmt((a.end??Date.now()/1000)-a.start)}</span>${act?`<span class="act">${esc(act)}</span>`:''}${a.routed_from?`<span class="sw">↪ switched from ${esc(a.routed_from)} — ${esc(a.route_reason||'')}</span>`:''}</div>${kids?`<div class="kids">${tree(a.id)}</div>`:''}`}
+function fmt(s){s=Math.max(0,Math.floor(s));return s<60?`${s}s`:s<3600?`${Math.floor(s/60)}m`: `${Math.floor(s/3600)}h ${Math.floor(s%3600/60)}m`}
+function tree(parent){return Object.values(agents).filter(a=>(a.parent||'-')===parent).sort((a,b)=>a.start-b.start).map(a=>node(a,Object.values(agents).some(c=>c.parent===a.id))).join('')}
+function render(){const list=Object.values(agents);document.getElementById('counts').innerHTML=['running','done','failed'].map(s=>`<span>${list.filter(a=>a.status===s).length} ${s}</span>`).join('');document.getElementById('tree').innerHTML=tree('-')||'<p class="empty">No agents yet.</p>';document.getElementById('updated').textContent='updated '+new Date().toLocaleTimeString();if(selected&&agents[selected]){document.getElementById('tree').querySelectorAll('.node').forEach(n=>{if(n.textContent.includes(selected))n.classList.add('sel')})}}
+function selectAgent(id){selected=id;render();drawPanel()};function closePanel(){selected='';document.getElementById('ptitle').textContent='Select an agent';['log','conv','task'].forEach(x=>document.getElementById(x).innerHTML='')}
+function showTab(id,el){tabId=id;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));el.classList.add('on');['log','conv','task'].forEach(x=>document.getElementById(x).hidden=x!==id)}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePanel()});
+function drawPanel(){const a=agents[selected];if(!a)return;document.getElementById('ptitle').textContent=a.id;document.getElementById('pmeta').textContent=`${a.agent} · ${a.dir||''}`;const bottom=el=>el.scrollHeight-el.scrollTop-el.clientHeight<24;for(const id of ['log','conv']){const el=document.getElementById(id),stick=bottom(el),arr=id==='conv'?conversation(events):events;el.innerHTML=arr.length?arr.map(e=>`<div class="ev"><div class="t">${new Date(e.ts*1000).toLocaleTimeString()}</div>${esc(e.text)}${e.detail?`<code>${esc(e.detail)}</code>`:''}</div>`).join(''):'<div class="empty">waiting for events…</div>';if(stick)el.scrollTop=el.scrollHeight}document.getElementById('task').innerHTML=`<b>Prompt</b>${events.filter(e=>e.kind==='prompt').map(e=>`<div class="msg">${esc(e.detail||e.text)}</div>`).join('')||'<div class="empty">waiting for events…</div>'}${a.routed_from?`<b>Routing</b><div class="msg">Switched from ${esc(a.routed_from)} — ${esc(a.route_reason||'')}</div>`:''}`;document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('on',['log','conv','task'][i]===tabId));['log','conv','task'].forEach(x=>document.getElementById(x).hidden=x!==tabId)}
+async function poll(){const [st,qt]=await Promise.all([get('status.jsonl'),get('quota.json')]);if(st!==null)agents=reduceStatus(st);else document.getElementById('tree').innerHTML='<p class="err">Cannot read status.jsonl</p>';if(qt!==null){try{quota=JSON.parse(qt)}catch{}}drawQuota();for(const a of Object.values(agents))if(a.status==='running'||a.id===selected){const t=await get(a.id+'.events.jsonl');if(t!==null){const ev=parseJsonl(t);a.activity=latestActivity(ev);if(a.id===selected)events=ev}}render();if(selected)drawPanel()}
+poll();setInterval(poll,2000);
+</script></body></html>
