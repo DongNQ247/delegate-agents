@@ -37,7 +37,7 @@ def update(vendor, five_hour, week, updated):
         data = load()
         if data.get(vendor, {}).get("updated", float("-inf")) > updated:
             return
-        data[vendor] = {"five_hour": five_hour, "week": week, "updated": updated}
+        data[vendor] = {"five_hour": five_hour, "week": week or {}, "updated": updated}
         fd, temporary = tempfile.mkstemp(dir=directory, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -154,7 +154,7 @@ def agy_refresh(if_older=None, now=None):
     try:
         result = subprocess.run(
             [command, "-p", "/usage"], capture_output=True, text=True,
-            errors="replace", timeout=30, check=False,
+            errors="replace", stdin=subprocess.DEVNULL, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -226,7 +226,7 @@ def claude_refresh(if_older=None, now=None):
     try:
         result = subprocess.run(
             [command, "-p", "/usage"], capture_output=True, text=True,
-            errors="replace", timeout=30, check=False,
+            errors="replace", stdin=subprocess.DEVNULL, timeout=30, check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -286,14 +286,14 @@ def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
 def headroom(entry, now):
     if not entry or now >= entry["five_hour"]["resets_at"]:
         return None
-    return 1 - max(entry["five_hour"]["used"], entry.get("week", {}).get("used", 0))
+    return 1 - max(entry["five_hour"]["used"], (entry.get("week") or {}).get("used", 0))
 
 
 def _near(entry, now):
     return bool(
         entry
         and now < entry["five_hour"]["resets_at"]
-        and (entry["five_hour"]["used"] >= .85 or entry.get("week", {}).get("used", 0) >= .90)
+        and (entry["five_hour"]["used"] >= .85 or (entry.get("week") or {}).get("used", 0) >= .90)
     )
 
 

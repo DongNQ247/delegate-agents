@@ -113,6 +113,37 @@ def test_pick_refreshes_stale_vendors(monkeypatch, tmp_path, capsys):
     assert capsys.readouterr().out
 
 
+def test_pick_after_partial_claude_refresh_keeps_missing_week_empty(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
+    fake = tmp_path / "claude"
+    fake.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'Current session: 18% used · resets Nov 20, 12:10am (Asia/Bangkok)'\n",
+        encoding="utf-8",
+    )
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(fake))
+
+    assert q.main(["pick", "claude", "claude", "codex"]) == 0
+
+    assert capsys.readouterr().out == "claude\tcapability\n"
+    assert q.load()["claude"].get("week", {}) == {}
+
+
+def test_pick_tolerates_null_week_in_existing_quota_file(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    (tmp_path / "q.json").write_text(json.dumps({
+        "claude": {"five_hour": {"used": .9, "resets_at": 100}, "week": None},
+        "codex": {"five_hour": {"used": .1, "resets_at": 100}, "week": None},
+    }), encoding="utf-8")
+
+    assert q.pick("claude", ["claude", "codex"], 2) == (
+        "codex", "switched from claude: 5h at 90% (≥85%)"
+    )
+    assert q.pick("-", ["claude", "codex"], 2) == ("codex", "quota headroom")
+
+
 def test_load_missing_and_corrupt_returns_empty(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
     assert q.load() == {}
