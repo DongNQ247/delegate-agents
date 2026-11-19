@@ -35,6 +35,24 @@ AGENTS_LOG="$dir/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
 grep -q '"routed_from": "claude"' "$dir/status.jsonl"
 grep -q '"route_reason": "5h at 88%"' "$dir/status.jsonl"
 
+# Agent artifacts belong beside the dashboard log, even when the worker runs elsewhere.
+agents="$tmp/separate/.agents"
+dir="$tmp/separate/worker"
+mkdir -p "$agents" "$dir"
+AGENTS_LOG="$agents/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
+  bash "$root/run-agent.sh" claude test-model - "$dir" claude-separate - "test prompt"
+python3 - "$agents" "$dir" <<'PY'
+import json, os, sys
+agents, worker = sys.argv[1:]
+for name in ("claude-separate.events.jsonl", "claude-separate.raw.jsonl",
+             "claude-separate.err", "claude-separate.out"):
+    assert os.path.isfile(os.path.join(agents, name)), name
+assert not os.listdir(worker), os.listdir(worker)
+events = [json.loads(line) for line in open(os.path.join(agents, "status.jsonl"))]
+assert events[-1]["status"] == "done", events
+assert events[-1]["summary"].strip(), events[-1]
+PY
+
 dir="$tmp/agy"
 mkdir -p "$dir"
 set +e

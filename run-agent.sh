@@ -7,8 +7,9 @@ set -u
 agent=$1 model=$2 effort=$3 dir=$4 id=$5 parent=$6 prompt=$7
 here=$(cd "$(dirname "$0")" && pwd)
 log=${AGENTS_LOG:?set AGENTS_LOG to an absolute path like <repo>/.agents/status.jsonl}
-mkdir -p "$(dirname "$log")"
-out=$(dirname "$log")/$id.out
+agents=$(dirname "$log")
+mkdir -p "$agents"
+out=$agents/$id.out
 mode=${MODE:-rw} t=${TIMEOUT:-600}
 
 emit() {  # key value ... -> one JSON line (short line + O_APPEND keeps parallel writes intact)
@@ -26,8 +27,8 @@ else
 fi
 
 run_cli() {
-  timeout "$t" "$@" </dev/null 2>"$dir/$id.err" | \
-    AGENT_PROMPT="$prompt" "${normalizer[@]}" "$agent" "$id" "$dir"
+  timeout "$t" "$@" </dev/null 2>"$agents/$id.err" | \
+    AGENT_PROMPT="$prompt" "${normalizer[@]}" "$agent" "$id" "$agents"
   code=${PIPESTATUS[0]}
 }
 
