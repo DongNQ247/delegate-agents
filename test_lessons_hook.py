@@ -22,8 +22,8 @@ RA = "AGENTS_LOG=/r/.agents/status.jsonl bash ~/.claude/skills/delegate-agents/r
 cases = [
     # (name, entries, expect: None | "LESSONS" | "REPORT")
     ("no skill use", [bash("ls"), text("hi")], None),
-    ("real dispatch", [bash(RA)], "LESSONS"),
-    ("$RA dispatch", [bash('bash $RA agy m - /w id - "p" &')], "LESSONS"),
+    ("dispatch alone no longer nags", [bash(RA)], None),
+    ("$RA dispatch alone", [bash('bash $RA agy m - /w id - "p" &')], None),
     ("dispatch then edit LESSONS", [bash(RA), edit("/h/LESSONS.md")], None),
     ("dispatch then 'nothing new' text", [bash(RA), text("Nothing new for LESSONS.md.")], None),
     # the three real false alarms:
@@ -31,19 +31,21 @@ cases = [
     ("ls output names the script", [bash("ls ~/.claude/skills/delegate-agents"), result("run-agent.sh\nLESSONS.md")], None),
     ("grep for the script", [bash("grep -n run-agent SKILL.md")], None),
     ("merge without skill", [bash("git merge feature")], None),
-    ("merge after dispatch, lessons done", [bash(RA), edit("/h/LESSONS.md"), bash("git merge --no-edit -q t")], "REPORT"),
-    ("merge handled", [bash(RA), edit("/h/LESSONS.md"), bash("git merge t"), edit("/r/.agents/REPORT.md")], None),
+    ("lessons edited BEFORE merge still nags after", [bash(RA), edit("/h/LESSONS.md"), bash("git merge --no-edit -q t")], "BOTH"),
+    ("merge then both handled", [bash(RA), bash("git merge t"), edit("/r/.agents/REPORT.md"), edit("/h/LESSONS.md")], None),
     ("merge --abort ignored", [bash(RA), edit("/h/LESSONS.md"), bash("git merge --abort")], None),
-    ("new dispatch after lessons", [bash(RA), edit("/h/LESSONS.md"), bash(RA)], "LESSONS"),
+    ("new dispatch after lessons", [bash(RA), edit("/h/LESSONS.md"), bash(RA)], None),
+    ("merge after dispatch, nothing handled", [bash(RA), bash("git merge t")], "BOTH"),
+    ("merge, lessons handled, report not", [bash(RA), bash("git merge t"), edit("/h/LESSONS.md")], "REPORT"),
 ]
 fails = 0
 for name, entries, expect in cases:
     out = run(entries)
-    got = None if not out else ("REPORT" if "REPORT.md" in out and "LESSONS.md" not in out else "LESSONS")
+    got = None if not out else ("BOTH" if "REPORT.md" in out and "LESSONS.md" in out else "REPORT" if "REPORT.md" in out else "LESSONS")
     ok = got == expect
     fails += not ok
     print(f"{'ok ' if ok else 'FAIL'} {name}: expected {expect}, got {got}")
-assert run([bash(RA)], {"stop_hook_active": True}) == "", "must not loop"
+assert run([bash(RA), bash("git merge t")], {"stop_hook_active": True}) == "", "must not loop"
 assert subprocess.run([sys.executable, HOOK], input="garbage", capture_output=True, text=True).returncode == 0
 print("loop guard ok, bad input ok")
 sys.exit(1 if fails else 0)

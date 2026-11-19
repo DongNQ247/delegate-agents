@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stop hook for delegate-agents. Reads only Claude's own tool calls and text in the transcript.
-- A Bash call that runs run-agent.sh after LESSONS.md was last handled  -> ask to update LESSONS.md
+- A Bash `git merge` (in a session that used run-agent.sh) after LESSONS.md was last handled -> ask to update LESSONS.md
 - A Bash `git merge` (in a session that used run-agent.sh) after REPORT.md was last handled
                                                                          -> ask to update .agents/REPORT.md
 "Handled" = Write/Edit of the file, a Bash command touching it, or assistant text naming it
@@ -57,7 +57,8 @@ def main():
             if name in val:  # file edit, bash touching it, or text naming it
                 last[name] = i
     todo = []
-    if last["dispatch"] > last["LESSONS.md"]:
+    # Remind only after a merge (end of a task/branch), not after every dispatch.
+    if last["dispatch"] >= 0 and last["merge"] > last["LESSONS.md"]:
         todo.append(f"append verified lessons to {LESSONS} (promote repeated ones into SKILL.md)")
     if last["dispatch"] >= 0 and last["merge"] > last["REPORT.md"]:
         todo.append("add an entry per merged task to <repo>/.agents/REPORT.md "
