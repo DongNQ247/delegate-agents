@@ -26,7 +26,7 @@ if [ "$cmd" = stop ]; then
     refresher_pid=$(sed -n '1p' "$refresher_pidf")
     bound_server_pid=$(sed -n '2p' "$refresher_pidf")
     if [ "$bound_server_pid" = "$server_pid" ]; then
-      kill "$refresher_pid" 2>/dev/null || true
+      kill -- "-$refresher_pid" 2>/dev/null || true
       rm -f "$refresher_pidf"
     fi
   fi
@@ -62,9 +62,12 @@ python3 "$here/quota.py" agy-refresh || true
 refresher_pidf="$(dirname "$QUOTA_PATH")/refresher.pid"
 server_pid=$(cat "$pidf")
 refresher_pid=$(sed -n '1p' "$refresher_pidf" 2>/dev/null || true)
-if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null; then
+bound_server_pid=$(sed -n '2p' "$refresher_pidf" 2>/dev/null || true)
+if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null || \
+   [ -z "$bound_server_pid" ] || ! kill -0 "$bound_server_pid" 2>/dev/null; then
   interval=${DELEGATE_AGY_INTERVAL:-300}
-  setsid sh -c 'while kill -0 "$1" 2>/dev/null; do python3 "$2" agy-refresh; sleep "$3"; done' sh "$server_pid" "$here/quota.py" "$interval" </dev/null >/dev/null 2>&1 &
+  refresher_marker="dashboard-refresher:$(dirname "$QUOTA_PATH")"
+  setsid sh -c 'while kill -0 "$2" 2>/dev/null; do python3 "$3" agy-refresh; sleep "$4"; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" </dev/null >/dev/null 2>&1 &
   refresher_pid=$!
   printf '%s\n%s\n' "$refresher_pid" "$server_pid" > "$refresher_pidf"
 fi
