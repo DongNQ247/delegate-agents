@@ -48,11 +48,16 @@ cat "$(dirname "$0")/agy-usage.txt"
 SH
 chmod +x "$DELEGATE_AGY_BIN"
 cp "$root/tests/fixtures/agy-usage.txt" "$tmp/agy-usage.txt"
+export DELEGATE_CLAUDE_BIN="$tmp/fake-claude"
+cat > "$DELEGATE_CLAUDE_BIN" <<'SH'
+#!/usr/bin/env sh
+cat "$(dirname "$0")/claude-usage.txt"
+SH
+chmod +x "$DELEGATE_CLAUDE_BIN"
+cp "$root/tests/fixtures/claude-usage.txt" "$tmp/claude-usage.txt"
 export DELEGATE_CODEX_SESSIONS="$tmp/codex-sessions"
 mkdir -p "$DELEGATE_CODEX_SESSIONS/2026/11/19"
-cat > "$DELEGATE_CODEX_SESSIONS/2026/11/19/rollout-test-thread.jsonl" <<'JSONL'
-{"timestamp":"2026-11-19T08:24:41.759Z","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"resets_at":4102444800},"secondary":{"used_percent":34,"resets_at":4102444800}}}}
-JSONL
+cp "$root/tests/fixtures/codex-rollout-sample.jsonl" "$DELEGATE_CODEX_SESSIONS/2026/11/19/rollout-x.jsonl"
 
 server_pid=
 server_pid2=
@@ -80,15 +85,10 @@ port=$(cat "$repo/.agents/server.port")
 
 status=$(curl -sS -o "$tmp/quota-response.json" -w '%{http_code}' "http://localhost:$port/quota.json")
 require test "$status" = 200
-python3 - "$tmp/quota-response.json" "$repo/.agents/quota.json" "$DELEGATE_QUOTA" <<'PY' || fail "quota endpoint does not contain expected codex and agy data or symlink target"
+python3 - "$repo/.agents/quota.json" "$DELEGATE_QUOTA" <<'PY' || fail "quota symlink target is incorrect"
 import json, sys
 import os
-with open(sys.argv[1], encoding="utf-8") as stream:
-    value = json.load(stream)
-assert isinstance(value, dict), value
-assert value["codex"]["five_hour"]["used"] == 0.12, value
-assert value["codex"]["week"]["used"] == 0.34, value
-assert os.path.realpath(sys.argv[2]) == os.path.realpath(sys.argv[3])
+assert os.path.realpath(sys.argv[1]) == os.path.realpath(sys.argv[2])
 PY
 require test -L "$repo/.agents/quota.json"
 require test -f "$DELEGATE_QUOTA"
@@ -102,26 +102,39 @@ refresher_pid=$(sed -n '1p' "$refresher_pid_file")
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid"
 require kill -0 "$refresher_pid"
 
-# The first refresher pass supplies agy data shortly after startup.
-agy_updated() {
-  python3 - "$DELEGATE_QUOTA" <<'PY'
+# The first refresher pass supplies all three vendors shortly after startup.
+all_vendors_refreshed() {
+  curl -fsS "http://localhost:$port/quota.json" -o "$tmp/quota-response.json" || return 1
+  python3 - "$tmp/quota-response.json" <<'PY'
 import json, sys
 try:
-    print(json.load(open(sys.argv[1], encoding="utf-8"))["agy"]["claude_gpt"]["updated"])
-except (OSError, KeyError, ValueError):
-    print("")
+    value = json.load(open(sys.argv[1], encoding="utf-8"))
+    assert "claude" in value
+    assert "codex" in value
+    assert "agy" in value
+except (AssertionError, OSError, ValueError):
+    sys.exit(1)
 PY
 }
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
-  [ -n "$(agy_updated)" ] && break
+  all_vendors_refreshed && break
   sleep 0.2
 done
-require test -n "$(agy_updated)"
-first_updated=$(agy_updated)
-curl -sS "http://localhost:$port/quota.json" -o "$tmp/quota-response.json"
-python3 - "$tmp/quota-response.json" <<'PY' || fail "agy data did not appear in the dashboard quota endpoint shortly after start"
+require all_vendors_refreshed
+first_updated=$(python3 - "$tmp/quota-response.json" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8"))["agy"]["claude_gpt"]["updated"])
+PY
+)
+python3 - "$tmp/quota-response.json" <<'PY' || fail "all vendor data did not appear in the dashboard quota endpoint shortly after start"
 import json, sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
+assert "claude" in value, value
+assert "codex" in value, value
+assert value["claude"]["five_hour"]["used"] == 0.18, value
+assert value["claude"]["week"]["used"] == 0.40, value
+assert value["codex"]["five_hour"]["used"] == 0.02, value
+assert value["codex"]["week"]["used"] == 0.01, value
 assert "claude_gpt" in value.get("agy", {}), value
 PY
 
@@ -147,7 +160,14 @@ require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
 require kill -0 "$refresher_pid"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  current_updated=$(agy_updated)
+  current_updated=$(python3 - "$DELEGATE_QUOTA" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8"))["agy"]["claude_gpt"]["updated"])
+except (OSError, KeyError, ValueError):
+    print("")
+PY
+  )
   if [ -n "$current_updated" ] && different "$current_updated" "$first_updated"; then break; fi
   sleep 0.2
 done

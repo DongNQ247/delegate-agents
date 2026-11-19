@@ -5,11 +5,14 @@ import glob
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 QUOTA_PATH = os.environ.get(
@@ -36,7 +39,7 @@ def update(vendor, five_hour, week, updated):
         data = load()
         if data.get(vendor, {}).get("updated", float("-inf")) > updated:
             return
-        data[vendor] = {"five_hour": five_hour, "week": week, "updated": updated}
+        data[vendor] = {"five_hour": five_hour, "week": week or {}, "updated": updated}
         fd, temporary = tempfile.mkstemp(dir=directory, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -69,6 +72,53 @@ def _write_locked(change):
             if os.path.exists(temporary):
                 os.unlink(temporary)
         return True
+
+
+def _run_cli(argv, timeout=30, cwd=None):
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            errors="replace",
+        )
+        try:
+            stdout, _ = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return stdout if process.returncode == 0 else None
+
+
+def _begin_refresh(vendor, if_older, now):
+    def begin(data):
+        meta = data.setdefault("_meta", {})
+        attempts = meta.setdefault("last_attempt", {})
+        if if_older is not None:
+            updated = (
+                agy_oldest_update(data)
+                if vendor == "agy"
+                else data.get(vendor, {}).get("updated")
+            )
+            last_attempt = attempts.get(vendor)
+            if updated is not None and now - updated < if_older:
+                return False
+            if last_attempt is not None and now - last_attempt < if_older:
+                return False
+        attempts[vendor] = now
+        return True
+
+    return _write_locked(begin)
 
 
 def update_agy(pools, updated):
@@ -145,26 +195,99 @@ def agy_oldest_update(data):
 
 def agy_refresh(if_older=None, now=None):
     now = time.time() if now is None else now
-    if if_older is not None:
-        oldest = agy_oldest_update(load())
-        if oldest is not None and now - oldest < if_older:
-            return False
+    if not _begin_refresh("agy", if_older, now):
+        return False
     command = os.environ.get("DELEGATE_AGY_BIN", "agy")
-    try:
-        result = subprocess.run(
-            [command, "-p", "/usage"], capture_output=True, text=True,
-            errors="replace", timeout=30, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+    output = _run_cli([command, "-p", "/usage"])
+    if output is None:
         return False
-    if result.returncode != 0:
-        return False
-    pools = parse_agy_usage(result.stdout)
+    pools = parse_agy_usage(output)
     if not pools:
         return False
     update_agy(pools, now)
     data = load().get("agy", {})
     return any(data.get(pool, {}).get("updated") == now for pool in pools)
+
+
+_CLAUDE_USAGE = re.compile(
+    r"^Current (session|week \(all models\)):\s*(\d+(?:\.\d+)?)% used"
+    r"\s*[·.]\s*resets\s+([A-Za-z]{3,9})\s+(\d{1,2}),\s*"
+    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def parse_claude_usage(text: str, now: float) -> dict:
+    windows = {}
+    for line in text.splitlines():
+        match = _CLAUDE_USAGE.fullmatch(line.strip())
+        if not match:
+            continue
+        label, percent, month, day, hour, minute, meridiem, timezone_name = match.groups()
+        try:
+            zone = ZoneInfo(timezone_name)
+            hour = int(hour) % 12 + (12 if meridiem.lower() == "pm" else 0)
+            local_now = datetime.fromtimestamp(now, zone)
+            earliest = datetime.fromtimestamp(now - 86400, zone)
+            reset_at = None
+            for year in range(local_now.year - 1, local_now.year + 3):
+                try:
+                    try:
+                        candidate = datetime.strptime(f"{month} {day} {year}", "%b %d %Y")
+                    except ValueError:
+                        candidate = datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
+                    candidate = candidate.replace(hour=hour, minute=int(minute or 0), tzinfo=zone)
+                except ValueError:
+                    continue
+                if candidate.timestamp() >= earliest.timestamp():
+                    reset_at = candidate.timestamp()
+                    break
+            if reset_at is None:
+                continue
+        except (ValueError, OverflowError, OSError, KeyError):
+            continue
+        key = "five_hour" if label.lower() == "session" else "week"
+        windows[key] = {
+            "used": round(float(percent) / 100, 10),
+            "resets_at": reset_at,
+        }
+    return windows
+
+
+def claude_refresh(if_older=None, now=None):
+    now = time.time() if now is None else now
+    if not _begin_refresh("claude", if_older, now):
+        return False
+    command = os.environ.get("DELEGATE_CLAUDE_BIN", "claude")
+    state_directory = os.path.dirname(os.path.abspath(QUOTA_PATH))
+    os.makedirs(state_directory, exist_ok=True)
+    output = _run_cli(
+        [command, "-p", "/usage", "--no-session-persistence"],
+        cwd=state_directory,
+    )
+    if output is None:
+        return False
+    parsed = parse_claude_usage(output, now)
+    five_hour = parsed.get("five_hour")
+    if five_hour is None:
+        return False
+    existing_week = load().get("claude", {}).get("week")
+    update("claude", five_hour, parsed.get("week", existing_week), now)
+    return load().get("claude", {}).get("updated") == now
+
+
+def codex_refresh(if_older=None):
+    now = time.time()
+    if not _begin_refresh("codex", if_older, now):
+        return False
+    result = codex_from_rollout(
+        None, sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions")
+    )
+    if not result:
+        return False
+    five_hour, week, updated = result
+    update("codex", five_hour, week, updated)
+    return load().get("codex", {}).get("updated") == updated
 
 
 def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
@@ -198,14 +321,14 @@ def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
 def headroom(entry, now):
     if not entry or now >= entry["five_hour"]["resets_at"]:
         return None
-    return 1 - max(entry["five_hour"]["used"], entry.get("week", {}).get("used", 0))
+    return 1 - max(entry["five_hour"]["used"], (entry.get("week") or {}).get("used", 0))
 
 
 def _near(entry, now):
     return bool(
         entry
         and now < entry["five_hour"]["resets_at"]
-        and (entry["five_hour"]["used"] >= .85 or entry.get("week", {}).get("used", 0) >= .90)
+        and (entry["five_hour"]["used"] >= .85 or (entry.get("week") or {}).get("used", 0) >= .90)
     )
 
 
@@ -264,6 +387,21 @@ def pick(preferred, eligible, now, data=None):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "refresh-all":
+        if_older = None
+        if len(argv) == 3 and argv[1] == "--if-older":
+            try:
+                if_older = float(argv[2])
+            except ValueError:
+                return 2
+        elif len(argv) != 1:
+            return 2
+        for refresh in (claude_refresh, codex_refresh, agy_refresh):
+            try:
+                refresh(if_older=if_older)
+            except Exception:
+                continue
+        return 0
     if argv and argv[0] == "seed":
         result = codex_from_rollout(sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions"))
         if result:
@@ -282,12 +420,36 @@ def main(argv=None):
         return 0
     if len(argv) >= 3 and argv[0] == "pick":
         eligible = argv[2:]
-        if any(item == "agy" or item.startswith("agy:") for item in argv[1:]):
-            agy_refresh(if_older=300)
+        requested = argv[1:]
+        refreshes = []
+        if "claude" in requested:
+            refreshes.append(claude_refresh)
+        if any(item == "agy" or item.startswith("agy:") for item in requested):
+            refreshes.append(agy_refresh)
+        threads = [
+            threading.Thread(target=lambda refresh=refresh: _ignore_refresh_error(refresh))
+            for refresh in refreshes
+        ]
+        for thread in threads:
+            thread.start()
+        if "codex" in requested:
+            try:
+                codex_refresh(if_older=300)
+            except Exception:
+                pass
+        for thread in threads:
+            thread.join()
         vendor, reason = pick(argv[1], eligible, time.time())
         print(f"{vendor}\t{reason}")
         return 0
     return 2
+
+
+def _ignore_refresh_error(refresh):
+    try:
+        refresh(if_older=300)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
