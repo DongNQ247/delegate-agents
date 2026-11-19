@@ -5,14 +5,112 @@ import multiprocessing
 import os
 import shutil
 import stat
+from zoneinfo import ZoneInfo
 
 import pytest
 
 
 def module(monkeypatch, path):
     monkeypatch.setenv("DELEGATE_QUOTA", str(path))
+    monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(path.parent / "codex-sessions"))
+    monkeypatch.setenv("DELEGATE_AGY_BIN", str(path.parent / "missing-agy"))
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(path.parent / "missing-claude"))
     import quota
     return importlib.reload(quota)
+
+
+def test_parse_claude_usage_real(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 11, 19, 15, 0, tzinfo=datetime.timezone.utc).timestamp()
+    parsed = q.parse_claude_usage(open("tests/fixtures/claude-usage.txt", encoding="utf-8").read(), now)
+    hcm = ZoneInfo("Asia/Bangkok")
+    assert parsed["five_hour"]["used"] == .18
+    assert parsed["five_hour"]["resets_at"] == datetime.datetime(2026, 11, 20, 0, 10, tzinfo=hcm).timestamp()
+    assert parsed["week"]["used"] == .40
+    assert parsed["week"]["resets_at"] == datetime.datetime(2026, 11, 24, 23, 0, tzinfo=hcm).timestamp()
+
+
+def test_parse_claude_usage_year_rollover(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 12, 31, 12, tzinfo=datetime.timezone.utc).timestamp()
+    parsed = q.parse_claude_usage("Current session: 18% used · resets Jan 2, 1am (UTC)", now)
+    assert datetime.datetime.fromtimestamp(parsed["five_hour"]["resets_at"], datetime.timezone.utc).year == 2027
+
+
+def test_parse_claude_usage_12am(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    parsed = q.parse_claude_usage("Current session: 18% used · resets Nov 20, 12:10am (Asia/Bangkok)", now)
+    assert datetime.datetime.fromtimestamp(parsed["five_hour"]["resets_at"], ZoneInfo("Asia/Bangkok")).hour == 0
+
+
+def test_parse_claude_usage_garbage_and_partial(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    garbage = open("tests/fixtures/claude-usage-garbage.txt", encoding="utf-8").read()
+    assert q.parse_claude_usage(garbage, now) == {}
+    partial = "Current session: 18% used · resets Nov 20, 12:10am (Asia/Bangkok)"
+    assert set(q.parse_claude_usage(partial, now)) == {"five_hour"}
+
+
+def test_claude_refresh_cli_fake_bin(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
+    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(fake))
+    assert q.main(["refresh-all"]) == 0
+    assert capsys.readouterr().out == ""
+    assert "claude" in q.load()
+
+    before = (tmp_path / "q.json").read_text()
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(tmp_path / "missing"))
+    assert q.main(["refresh-all"]) == 0
+    assert capsys.readouterr().out == ""
+    assert (tmp_path / "q.json").read_text() == before
+
+
+def test_claude_refresh_newer_wins(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(fake))
+    old_window = {"used": .75, "resets_at": 9999999999}
+    q.update("claude", old_window, old_window, 9999999999)
+    assert q.claude_refresh(now=100) is False
+    assert q.load()["claude"]["five_hour"] == old_window
+    assert q.load()["claude"]["updated"] == 9999999999
+
+
+def test_codex_refresh_no_rollout_noop(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(sessions))
+    assert q.codex_refresh() is False
+    assert q.load() == {}
+
+
+def test_pick_refreshes_stale_vendors(monkeypatch, tmp_path, capsys):
+    q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
+    win = {"used": .1, "resets_at": fixed_now + 3600}
+    q.update("claude", win, win, 1)
+    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    marker = tmp_path / "ran"
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat '{fixture}'\n", encoding="utf-8")
+    fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("DELEGATE_CLAUDE_BIN", str(fake))
+    assert q.main(["pick", "claude", "claude", "codex"]) == 0
+    assert marker.exists()
+    assert capsys.readouterr().out
 
 
 def test_load_missing_and_corrupt_returns_empty(monkeypatch, tmp_path):

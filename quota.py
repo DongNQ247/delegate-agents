@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 QUOTA_PATH = os.environ.get(
@@ -167,6 +168,93 @@ def agy_refresh(if_older=None, now=None):
     return any(data.get(pool, {}).get("updated") == now for pool in pools)
 
 
+_CLAUDE_USAGE = re.compile(
+    r"^Current (session|week \(all models\)):\s*(\d+(?:\.\d+)?)% used"
+    r"\s*[·.]\s*resets\s+([A-Za-z]{3,9})\s+(\d{1,2}),\s*"
+    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def parse_claude_usage(text: str, now: float) -> dict:
+    windows = {}
+    for line in text.splitlines():
+        match = _CLAUDE_USAGE.fullmatch(line.strip())
+        if not match:
+            continue
+        label, percent, month, day, hour, minute, meridiem, timezone_name = match.groups()
+        try:
+            zone = ZoneInfo(timezone_name)
+            hour = int(hour) % 12 + (12 if meridiem.lower() == "pm" else 0)
+            local_now = datetime.fromtimestamp(now, zone)
+            earliest = datetime.fromtimestamp(now - 86400, zone)
+            reset_at = None
+            for year in range(local_now.year - 1, local_now.year + 3):
+                try:
+                    candidate = datetime.strptime(f"{month} {day} {year}", "%b %d %Y").replace(
+                        hour=hour, minute=int(minute or 0), tzinfo=zone,
+                    )
+                except ValueError:
+                    continue
+                if candidate.timestamp() >= earliest.timestamp():
+                    reset_at = candidate.timestamp()
+                    break
+            if reset_at is None:
+                continue
+        except (ValueError, OverflowError, OSError, KeyError):
+            continue
+        key = "five_hour" if label.lower() == "session" else "week"
+        windows[key] = {
+            "used": round(float(percent) / 100, 10),
+            "resets_at": reset_at,
+        }
+    return windows
+
+
+def _refresh_is_stale(vendor, if_older, now):
+    if if_older is None:
+        return True
+    updated = load().get(vendor, {}).get("updated")
+    return updated is None or now - updated >= if_older
+
+
+def claude_refresh(if_older=None, now=None):
+    now = time.time() if now is None else now
+    if not _refresh_is_stale("claude", if_older, now):
+        return False
+    command = os.environ.get("DELEGATE_CLAUDE_BIN", "claude")
+    try:
+        result = subprocess.run(
+            [command, "-p", "/usage"], capture_output=True, text=True,
+            errors="replace", timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    parsed = parse_claude_usage(result.stdout, now)
+    five_hour = parsed.get("five_hour")
+    if five_hour is None:
+        return False
+    existing_week = load().get("claude", {}).get("week")
+    update("claude", five_hour, parsed.get("week", existing_week), now)
+    return load().get("claude", {}).get("updated") == now
+
+
+def codex_refresh(if_older=None):
+    now = time.time()
+    if not _refresh_is_stale("codex", if_older, now):
+        return False
+    result = codex_from_rollout(
+        None, sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions")
+    )
+    if not result:
+        return False
+    five_hour, week, updated = result
+    update("codex", five_hour, week, updated)
+    return load().get("codex", {}).get("updated") == updated
+
+
 def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
     files = glob.glob(os.path.join(os.path.expanduser(sessions_dir), "**", "*.jsonl"), recursive=True)
     if thread_id:
@@ -264,6 +352,21 @@ def pick(preferred, eligible, now, data=None):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "refresh-all":
+        if_older = None
+        if len(argv) == 3 and argv[1] == "--if-older":
+            try:
+                if_older = float(argv[2])
+            except ValueError:
+                return 2
+        elif len(argv) != 1:
+            return 2
+        for refresh in (claude_refresh, codex_refresh, agy_refresh):
+            try:
+                refresh(if_older=if_older)
+            except Exception:
+                continue
+        return 0
     if argv and argv[0] == "seed":
         result = codex_from_rollout(sessions_dir=os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions"))
         if result:
@@ -282,8 +385,22 @@ def main(argv=None):
         return 0
     if len(argv) >= 3 and argv[0] == "pick":
         eligible = argv[2:]
-        if any(item == "agy" or item.startswith("agy:") for item in argv[1:]):
-            agy_refresh(if_older=300)
+        requested = argv[1:]
+        if "claude" in requested:
+            try:
+                claude_refresh(if_older=300)
+            except Exception:
+                pass
+        if "codex" in requested:
+            try:
+                codex_refresh(if_older=300)
+            except Exception:
+                pass
+        if any(item == "agy" or item.startswith("agy:") for item in requested):
+            try:
+                agy_refresh(if_older=300)
+            except Exception:
+                pass
         vendor, reason = pick(argv[1], eligible, time.time())
         print(f"{vendor}\t{reason}")
         return 0
