@@ -203,12 +203,27 @@ def test_update_agy_merges_and_keeps_others(monkeypatch, tmp_path):
     assert data["codex"]["updated"] == 50
     assert data["agy"]["claude_gpt"] == {**claude_gpt, "updated": 100}
     assert data["agy"]["gemini"]["five_hour"] == {"used": .04}
-    assert data["agy"]["gemini"]["week"] == gemini["week"]
+    assert "week" not in data["agy"]["gemini"]
     assert data["agy"]["gemini"]["updated"] == 101
     assert q.agy_oldest_update(data) == 100
     assert q.agy_oldest_update({"agy": {"gemini": {"updated": 101}}}) is None
     q.update_agy({"gemini": gemini}, 102)
     assert "claude_gpt" in q.load()["agy"]
+
+
+def test_update_agy_drops_old_week_when_fresh_pool_has_no_week(monkeypatch, tmp_path):
+    q = module(monkeypatch, tmp_path / "q.json")
+    q.update_agy({"gemini": {
+        "five_hour": {"used": .1, "resets_at": 1000},
+        "week": {"used": .8, "resets_at": 2000},
+    }}, 100)
+
+    q.update_agy({"gemini": {"five_hour": {"used": .2, "resets_at": 1100}}}, 101)
+
+    pool = q.load()["agy"]["gemini"]
+    assert pool["five_hour"] == {"used": .2, "resets_at": 1100}
+    assert "week" not in pool
+    assert pool["updated"] == 101
 
 
 def test_agy_pool(monkeypatch, tmp_path):

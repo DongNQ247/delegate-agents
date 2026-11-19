@@ -83,6 +83,8 @@ def update_agy(pools, updated):
                 continue
             merged = dict(existing)
             merged.update({key: value for key, value in windows.items() if key in ("five_hour", "week")})
+            if "five_hour" in windows and "week" not in windows:
+                merged.pop("week", None)
             merged["updated"] = updated
             agy[pool] = merged
             changed = True

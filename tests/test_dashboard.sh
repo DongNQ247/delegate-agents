@@ -8,9 +8,25 @@ fail() {
 trap 'echo "FAIL: command failed: $BASH_COMMAND" >&2' ERR
 
 require() {
-  if ! "$@"; then
+  if "$@"; then
+    return 0
+  else
     fail "$*"
   fi
+}
+
+is_dead() {
+  if kill -0 "$1" 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+different() {
+  if [ "$1" = "$2" ]; then
+    return 1
+  fi
+  return 0
 }
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -40,6 +56,7 @@ JSONL
 
 server_pid=
 server_pid2=
+crash_server_pid=
 cleanup() {
   bash "$root/dashboard.sh" stop "$repo" >/dev/null 2>&1 || true
   bash "$root/dashboard.sh" stop "$repo2" >/dev/null 2>&1 || true
@@ -63,7 +80,7 @@ port=$(cat "$repo/.agents/server.port")
 
 status=$(curl -sS -o "$tmp/quota-response.json" -w '%{http_code}' "http://localhost:$port/quota.json")
 require test "$status" = 200
-if ! python3 - "$tmp/quota-response.json" "$repo/.agents/quota.json" "$DELEGATE_QUOTA" <<'PY'
+python3 - "$tmp/quota-response.json" "$repo/.agents/quota.json" "$DELEGATE_QUOTA" <<'PY' || fail "quota endpoint does not contain expected codex and agy data or symlink target"
 import json, sys
 import os
 with open(sys.argv[1], encoding="utf-8") as stream:
@@ -71,12 +88,8 @@ with open(sys.argv[1], encoding="utf-8") as stream:
 assert isinstance(value, dict), value
 assert value["codex"]["five_hour"]["used"] == 0.12, value
 assert value["codex"]["week"]["used"] == 0.34, value
-assert "claude_gpt" in value.get("agy", {}), value
 assert os.path.realpath(sys.argv[2]) == os.path.realpath(sys.argv[3])
 PY
-then
-  fail "quota endpoint does not contain expected codex and agy data or symlink target"
-fi
 require test -L "$repo/.agents/quota.json"
 require test -f "$DELEGATE_QUOTA"
 refresher_pid_file="$(dirname "$DELEGATE_QUOTA")/refresher.pid"
@@ -89,28 +102,35 @@ refresher_pid=$(sed -n '1p' "$refresher_pid_file")
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid"
 require kill -0 "$refresher_pid"
 
+# The first refresher pass supplies agy data shortly after startup.
+agy_updated() {
+  python3 - "$DELEGATE_QUOTA" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8"))["agy"]["claude_gpt"]["updated"])
+except (OSError, KeyError, ValueError):
+    print("")
+PY
+}
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+  [ -n "$(agy_updated)" ] && break
+  sleep 0.2
+done
+require test -n "$(agy_updated)"
+first_updated=$(agy_updated)
+curl -sS "http://localhost:$port/quota.json" -o "$tmp/quota-response.json"
+python3 - "$tmp/quota-response.json" <<'PY' || fail "agy data did not appear in the dashboard quota endpoint shortly after start"
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+assert "claude_gpt" in value.get("agy", {}), value
+PY
+
 (cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "second dashboard start failed"
 server_pid2=$(cat "$repo2/.agents/server.pid")
 require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"
-require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid"
+require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid $server_pid2"
 loop_count=$( (pgrep -f -- "$refresher_marker" || true) | wc -l )
 require test "$loop_count" -eq 1
-
-kill "$server_pid" 2>/dev/null || fail "could not stop first dashboard server"
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  kill -0 "$refresher_pid" 2>/dev/null || break
-  sleep 0.2
-done
-if kill -0 "$refresher_pid" 2>/dev/null; then
-  fail "refresher did not exit after its bound server died"
-fi
-
-# A start against a live repo must replace a refresher whose server binding died.
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "restart against second dashboard failed"
-new_refresher_pid=$(sed -n '1p' "$refresher_pid_file")
-require test "$new_refresher_pid" != "$refresher_pid"
-require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
-require kill -0 "$new_refresher_pid"
 
 bash "$root/dashboard.sh" stop "$repo" >/dev/null
 for _ in 1 2 3 4 5; do
@@ -120,8 +140,20 @@ done
 if kill -0 "$server_pid" 2>/dev/null; then
   fail "first dashboard server is still running after stop"
 fi
-require test ! -e "$repo/.agents/server.pid"
-require test ! -e "$repo/.agents/server.port"
+if [ -e "$repo/.agents/server.pid" ] || [ -e "$repo/.agents/server.port" ]; then
+  fail "first dashboard state files remain after stop"
+fi
+require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"
+require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
+require kill -0 "$refresher_pid"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  current_updated=$(agy_updated)
+  if [ -n "$current_updated" ] && different "$current_updated" "$first_updated"; then break; fi
+  sleep 0.2
+done
+require test -n "$current_updated"
+require different "$current_updated" "$first_updated"
+
 bash "$root/dashboard.sh" stop "$repo2" >/dev/null
 for _ in 1 2 3 4 5; do
   kill -0 "$server_pid2" 2>/dev/null || break
@@ -130,10 +162,46 @@ done
 if kill -0 "$server_pid2" 2>/dev/null; then
   fail "second dashboard server is still running after stop"
 fi
-require test ! -e "$repo2/.agents/server.pid"
-require test ! -e "$repo2/.agents/server.port"
-require test ! -e "$refresher_pid_file"
+if [ -e "$repo2/.agents/server.pid" ] || [ -e "$repo2/.agents/server.port" ]; then
+  fail "second dashboard state files remain after stop"
+fi
+if [ -e "$refresher_pid_file" ]; then
+  fail "refresher state file remains after final stop"
+fi
 loop_count=$( (pgrep -f -- "$refresher_marker" || true) | wc -l )
 require test "$loop_count" -eq 0
+
+# Directly killing all served servers still lets the loop exit on its own.
+(cd "$tmp" && bash "$root/dashboard.sh" start "$repo" >/dev/null) || fail "crash-case dashboard start failed"
+crash_server_pid=$(cat "$repo/.agents/server.pid")
+crash_refresher_pid=$(sed -n '1p' "$refresher_pid_file")
+(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "second crash-case dashboard start failed"
+crash_server_pid2=$(cat "$repo2/.agents/server.pid")
+require test "$(sed -n '2p' "$refresher_pid_file")" = "$crash_server_pid $crash_server_pid2"
+kill "$crash_server_pid" "$crash_server_pid2" 2>/dev/null || fail "could not kill crash-case dashboard servers"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if is_dead "$crash_refresher_pid"; then break; fi
+  sleep 0.2
+done
+if kill -0 "$crash_refresher_pid" 2>/dev/null; then
+  fail "refresher did not exit after all served servers died"
+fi
+# Starting a live server replaces the stale refresher state after a crash.
+(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "restart after crash failed"
+server_pid2=$(cat "$repo2/.agents/server.pid")
+new_refresher_pid=$(sed -n '1p' "$refresher_pid_file")
+require different "$new_refresher_pid" "$crash_refresher_pid"
+require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
+bash "$root/dashboard.sh" stop "$repo2" >/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if is_dead "$new_refresher_pid"; then break; fi
+  sleep 0.2
+done
+if kill -0 "$new_refresher_pid" 2>/dev/null; then
+  fail "final crash-recovery refresher is still running after stop"
+fi
+if [ -e "$refresher_pid_file" ]; then
+  fail "crash-recovery refresher state file remains after final stop"
+fi
 
 echo PASS

@@ -18,16 +18,31 @@ quota_path() {
   esac
 }
 
+write_refresher_state() {
+  temporary="$refresher_pidf.tmp.$$"
+  printf '%s\n%s\n' "$refresher_pid" "$server_pids" > "$temporary" &&
+    mv -f "$temporary" "$refresher_pidf"
+}
+
 if [ "$cmd" = stop ]; then
   server_pid=$(cat "$pidf" 2>/dev/null || true)
   quota_path=$(quota_path)
   refresher_pidf="$(dirname "$quota_path")/refresher.pid"
   if [ -n "$server_pid" ] && [ -f "$refresher_pidf" ]; then
     refresher_pid=$(sed -n '1p' "$refresher_pidf")
-    bound_server_pid=$(sed -n '2p' "$refresher_pidf")
-    if [ "$bound_server_pid" = "$server_pid" ]; then
+    bound_server_pids=$(sed -n '2p' "$refresher_pidf")
+    remaining_server_pids=()
+    for bound_server_pid in $bound_server_pids; do
+      if [ "$bound_server_pid" != "$server_pid" ]; then
+        remaining_server_pids+=("$bound_server_pid")
+      fi
+    done
+    if [ "${#remaining_server_pids[@]}" -eq 0 ]; then
       kill -- "-$refresher_pid" 2>/dev/null || true
       rm -f "$refresher_pidf"
+    else
+      server_pids=${remaining_server_pids[*]}
+      write_refresher_state
     fi
   fi
   alive && kill "$(cat "$pidf")" && echo "dashboard stopped" || echo "dashboard not running"
@@ -57,19 +72,24 @@ if ! alive; then
   for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/dashboard.html" && break; sleep 0.3; done
 fi
 
-# Refresh immediately, then keep one user-scoped refresher bound to this server.
-python3 "$here/quota.py" agy-refresh || true
+# Keep one user-scoped refresher serving every live dashboard server.
 refresher_pidf="$(dirname "$QUOTA_PATH")/refresher.pid"
 server_pid=$(cat "$pidf")
 refresher_pid=$(sed -n '1p' "$refresher_pidf" 2>/dev/null || true)
-bound_server_pid=$(sed -n '2p' "$refresher_pidf" 2>/dev/null || true)
-if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null || \
-   [ -z "$bound_server_pid" ] || ! kill -0 "$bound_server_pid" 2>/dev/null; then
+if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null; then
   interval=${DELEGATE_AGY_INTERVAL:-300}
   refresher_marker="dashboard-refresher:$(dirname "$QUOTA_PATH")"
-  setsid sh -c 'while kill -0 "$2" 2>/dev/null; do python3 "$3" agy-refresh; sleep "$4"; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" </dev/null >/dev/null 2>&1 &
+  setsid sh -c 'while :; do python3 "$3" agy-refresh; sleep "$4"; server_pids=$(sed -n "2p" "$5" 2>/dev/null); alive=0; for pid in $server_pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done; [ "$alive" -eq 1 ] || exit; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" "$refresher_pidf" </dev/null >/dev/null 2>&1 &
   refresher_pid=$!
-  printf '%s\n%s\n' "$refresher_pid" "$server_pid" > "$refresher_pidf"
+  server_pids=$server_pid
+  write_refresher_state
+else
+  server_pids=$(sed -n '2p' "$refresher_pidf" 2>/dev/null || true)
+  case " $server_pids " in
+    *" $server_pid "*) ;;
+    *) server_pids="${server_pids:+$server_pids }$server_pid" ;;
+  esac
+  write_refresher_state
 fi
 url="http://localhost:$(cat "$portf")/dashboard.html"
 
