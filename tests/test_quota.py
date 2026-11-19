@@ -236,6 +236,8 @@ def test_agy_pool(monkeypatch, tmp_path):
 
 def test_agy_refresh_cli_with_fake_bin(monkeypatch, tmp_path, capsys):
     q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 8, 0, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
     fake = tmp_path / "agy"
     fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
     fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
@@ -290,6 +292,8 @@ def test_agy_refresh_if_older_skips_fresh(monkeypatch, tmp_path, capsys):
 
 def test_cli_pick_refreshes_agy_before_routing(monkeypatch, tmp_path, capsys):
     q = module(monkeypatch, tmp_path / "q.json")
+    fixed_now = datetime.datetime(2026, 11, 19, 8, 0, tzinfo=datetime.timezone.utc).timestamp()
+    monkeypatch.setattr(q.time, "time", lambda: fixed_now)
     data = {
         "claude": {"five_hour": {"used": .9, "resets_at": 9999999999}, "week": {"used": .1}},
         "agy": {
