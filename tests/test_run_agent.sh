@@ -81,4 +81,19 @@ assert events[0]["status"] == "running", events
 assert events[-1]["status"] in {"done", "failed", "timeout"}, events
 PY
 
+
+# Relative log paths remain anchored to the caller cwd after worker cd.
+mkdir -p "$tmp/relative/worker"
+(cd "$tmp/relative" && AGENTS_LOG=logs/status.jsonl bash "$root/run-agent.sh" codex test-model - worker relative-log - "test prompt")
+test -f "$tmp/relative/logs/relative-log.events.jsonl"
+grep -q '"status": "done"' "$tmp/relative/logs/status.jsonl"
+
+# Whitespace-only prompt is rejected before status output.
+dir="$tmp/empty-prompt"; mkdir -p "$dir"
+set +e
+AGENTS_LOG="$dir/status.jsonl" bash "$root/run-agent.sh" codex test-model - "$dir" empty - '   ' 2>"$dir/stderr"
+code=$?
+set -e
+test "$code" -eq 2; grep -q usage "$dir/stderr"; test ! -e "$dir/status.jsonl"
+
 echo PASS

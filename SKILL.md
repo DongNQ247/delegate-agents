@@ -182,6 +182,8 @@ Verified: 2 areas × 2 tasks (Codex + agy) → 115s, 0 conflicts, 38 tests passi
 
 ## Common mistakes
 
+- Building a worker prompt with `sed` substitution or `$(python -c "...")` breaks on `|`, backticks, and quotes (seen twice: an empty prompt and a lost command). Write the prompt to a file with a quoted heredoc (`<<'EOF'`) and pass `"$(cat file)"`. `run-agent.sh` refuses empty prompts.
+
 - Codex launched in background without `</dev/null` → prints "Reading additional input from stdin" and hangs until timeout. run-agent.sh handles it.
 
 - Calling a worker without `-m/--model` and effort → runs whatever the config default is today.

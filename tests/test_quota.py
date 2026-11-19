@@ -73,6 +73,18 @@ def test_codex_from_rollout_none_when_absent(tmp_path):
     assert quota.codex_from_rollout(None, str(tmp_path)) is None
 
 
+def test_codex_from_rollout_skips_malformed_rate_limits_line(tmp_path):
+    import quota
+    path = tmp_path / "rollout.jsonl"
+    path.write_text(
+        '{"timestamp":"2026-11-19T08:24:41Z","payload":{"type":"token_count","rate_limits":{"primary":{"used_percent":12,"resets_at":1000},"secondary":{"used_percent":34,"resets_at":2000}}}}\n'
+        '{"timestamp":"bad","payload":{"type":"token_count","rate_limits":{"primary":null}}}\n'
+    )
+    five_hour, week, _ = quota.codex_from_rollout(sessions_dir=str(tmp_path))
+    assert five_hour == {"used": .12, "resets_at": 1000}
+    assert week == {"used": .34, "resets_at": 2000}
+
+
 def test_headroom():
     import quota
     now = 100

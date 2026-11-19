@@ -31,7 +31,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-(cd "$repo" && bash "$root/dashboard.sh" start "$repo" >/dev/null)
+(cd "$tmp" && bash "$root/dashboard.sh" start "$repo" >/dev/null)
+grep -qx '.agents/' "$repo/.git/info/exclude"
 server_pid=$(cat "$repo/.agents/server.pid")
 port=$(cat "$repo/.agents/server.port")
 

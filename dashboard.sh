@@ -28,7 +28,7 @@ python3 "$here/quota.py" seed || true
 mkdir -p "$(dirname "$QUOTA_PATH")"
 [ -f "$QUOTA_PATH" ] || printf '{}\n' > "$QUOTA_PATH"
 ln -sfn "$QUOTA_PATH" "$dir/quota.json"
-excl="$(git -C "$repo" rev-parse --git-common-dir)/info/exclude"
+excl="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
 mkdir -p "$(dirname "$excl")"; grep -qx '.agents/' "$excl" 2>/dev/null || echo '.agents/' >> "$excl"
 
 if ! alive; then

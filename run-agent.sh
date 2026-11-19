@@ -5,8 +5,10 @@
 set -u
 [ $# -eq 7 ] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
 agent=$1 model=$2 effort=$3 dir=$4 id=$5 parent=$6 prompt=$7
+[[ "$prompt" =~ [^[:space:]] ]] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 log=${AGENTS_LOG:?set AGENTS_LOG to an absolute path like <repo>/.agents/status.jsonl}
+case $log in /*) ;; *) log=$PWD/$log;; esac
 agents=$(dirname "$log")
 mkdir -p "$agents"
 out=$agents/$id.out
@@ -48,6 +50,8 @@ case "$agent" in
 esac
 status=done; [ $code -ne 0 ] && status=failed; [ $code -eq 124 ] && status=timeout
 summary=$(grep -v '^\s*$' "$out" 2>/dev/null | tail -1 | cut -c1-300)
+if [ "$code" -ne 0 ] && [ -z "$summary" ]; then summary=$(grep -v '^\s*$' "$agents/$id.err" 2>/dev/null | tail -1 | cut -c1-300); fi
 emit id "$id" status "$status" code "$code" summary "$summary"
 cat "$out" 2>/dev/null | tail -5
+if [ "$code" -ne 0 ]; then tail -5 "$agents/$id.err" 2>/dev/null || true; fi
 exit $code

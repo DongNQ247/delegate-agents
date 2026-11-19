@@ -58,16 +58,16 @@ def codex_from_rollout(thread_id=None, sessions_dir="~/.codex/sessions"):
                 for line in stream:
                     try:
                         row = json.loads(line)
-                    except ValueError:
+                        payload = row.get("payload", {})
+                        limits = payload.get("rate_limits")
+                        if payload.get("type") != "token_count" or not limits:
+                            continue
+                        stamp = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp()
+                        def window(value):
+                            return {"used": value["used_percent"] / 100, "resets_at": value["resets_at"]}
+                        found = window(limits["primary"]), window(limits["secondary"]), stamp
+                    except Exception:
                         continue
-                    payload = row.get("payload", {})
-                    limits = payload.get("rate_limits")
-                    if payload.get("type") != "token_count" or not limits:
-                        continue
-                    stamp = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).timestamp()
-                    def window(value):
-                        return {"used": value["used_percent"] / 100, "resets_at": value["resets_at"]}
-                    found = window(limits["primary"]), window(limits["secondary"]), stamp
         except (OSError, KeyError, TypeError, ValueError):
             continue
         if found:
