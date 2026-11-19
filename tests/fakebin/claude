@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+cat "$TEST_ROOT/tests/fixtures/claude.jsonl"
+exit "${FAKE_EXIT:-0}"

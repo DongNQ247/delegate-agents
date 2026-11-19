@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -e
+out=
+while (($#)); do
+  if [[ $1 == -o ]]; then
+    out=$2
+    shift 2
+  else
+    shift
+  fi
+done
+cat "$TEST_ROOT/tests/fixtures/codex.jsonl"
+printf 'fake final' > "$out"
+exit "${FAKE_EXIT:-0}"

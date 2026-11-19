@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+cat "$TEST_ROOT/tests/fixtures/agy.jsonl"
+exit "${FAKE_EXIT:-0}"
