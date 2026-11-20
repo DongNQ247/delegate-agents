@@ -190,3 +190,42 @@ def test_main_updates_claude_quota(tmp_path, monkeypatch):
 
     assert result.returncode == 0
     assert quota.load()["claude"]["five_hour"]["used"] == 0.3
+
+
+SESSION_IDS = {
+    "codex": "01a1f2e8-3f38-7870-859a-846c5929cfb3",
+    "claude": "34cb7732-ccc0-4988-a249-147c0ddeb20a",
+    "agy": "97635adb-8352-40cb-8f56-f82c71ce1f59",
+}
+
+
+def _run_main(agent, text, tmp_path, monkeypatch):
+    import stream_normalize
+
+    monkeypatch.setenv("DELEGATE_QUOTA", str(tmp_path / "quota.json"))
+    monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(tmp_path / "sessions"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    stream_normalize.main([agent, "w1", str(tmp_path)])
+    return tmp_path / "w1.session"
+
+
+def test_session_file_codex(tmp_path, monkeypatch):
+    path = _run_main("codex", (FIXTURES / "codex.jsonl").read_text(encoding="utf-8"), tmp_path, monkeypatch)
+    assert path.read_text(encoding="utf-8").strip() == SESSION_IDS["codex"]
+
+
+def test_session_file_claude(tmp_path, monkeypatch):
+    path = _run_main("claude", (FIXTURES / "claude.jsonl").read_text(encoding="utf-8"), tmp_path, monkeypatch)
+    assert path.read_text(encoding="utf-8").strip() == SESSION_IDS["claude"]
+
+
+def test_session_file_agy(tmp_path, monkeypatch):
+    path = _run_main("agy", (FIXTURES / "agy.jsonl").read_text(encoding="utf-8"), tmp_path, monkeypatch)
+    assert path.read_text(encoding="utf-8").strip() == SESSION_IDS["agy"]
+
+
+def test_session_file_keeps_latest_and_skips_missing(tmp_path, monkeypatch):
+    lines = '{"type":"system","session_id":"a"}\n{"type":"system","session_id":"b"}\n'
+    assert _run_main("claude", lines, tmp_path, monkeypatch).read_text(encoding="utf-8").strip() == "b"
+    (tmp_path / "w1.session").unlink()
+    assert not _run_main("claude", '{"type":"result"}\nnot json\n', tmp_path, monkeypatch).exists()
