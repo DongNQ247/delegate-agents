@@ -3,17 +3,26 @@
 # usage: AGENTS_LOG=/abs/repo/.agents/status.jsonl bash run-agent.sh <codex|agy|claude> <model> <effort|-> <abs-dir> <id> <parent|-> "<prompt>"
 # env: MODE=ro (read-only review), TIMEOUT=600, WAVE=N (parallel wave, shown on the dashboard),
 #      RESUME=<earlier id> (continue that worker's session; same agent)
+# stop:  AGENTS_LOG=... bash run-agent.sh stop <id>   (cancel a running worker; final status "cancelled")
 set -u
+safe() { [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] && [[ $1 != .* ]]; }  # id/parent become file names under .agents
+if [ "${1:-}" = stop ]; then
+  [ $# -eq 2 ] && safe "$2" || { echo "usage: run-agent.sh stop id" >&2; exit 2; }
+  agents=$(dirname "${AGENTS_LOG:?set AGENTS_LOG to the status.jsonl of the workers}")
+  pgid=$(cat "$agents/$2.pgid" 2>/dev/null) && [ -n "$pgid" ] || { echo "stop: $2 is not running" >&2; exit 1; }
+  : > "$agents/$2.cancelled"  # written before the kill so the worker's run-agent reports cancelled
+  kill -TERM -- -"$pgid" 2>/dev/null
+  exit 0
+fi
 [ $# -eq 7 ] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
 agent=$1 model=$2 effort=$3 dir=$4 id=$5 parent=$6 prompt=$7
 [[ "$prompt" =~ [^[:space:]] ]] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
-safe() { [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] && [[ $1 != .* ]]; }  # id/parent become file names under .agents
 safe "$id" && { [ "$parent" = - ] || safe "$parent"; } || { echo "usage: run-agent.sh agent model effort dir id parent prompt (id/parent: [A-Za-z0-9._-], no leading dot)" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 log=${AGENTS_LOG:?set AGENTS_LOG to an absolute path like <repo>/.agents/status.jsonl}
 case $log in /*) ;; *) log=$PWD/$log;; esac
 agents=$(dirname "$log")
-mkdir -p "$agents"
+mkdir -p "$agents"; rm -f "$agents/$id.cancelled"  # stale marker from an earlier run of this id
 out=$agents/$id.out
 mode=${MODE:-rw} t=${TIMEOUT:-600}
 sid= resumed=()
@@ -72,6 +81,8 @@ case "$agent" in
   *) emit id "$id" status failed code 2 summary "unknown agent $agent"; exit 2 ;;
 esac
 status=done; [ $code -ne 0 ] && status=failed; [ $code -eq 124 ] && status=timeout
+[ -e "$agents/$id.cancelled" ] && [ $code -ne 0 ] && status=cancelled  # a stop after a clean exit keeps done
+rm -f "$agents/$id.cancelled"
 summary=$(grep -v '^\s*$' "$out" 2>/dev/null | tail -1 | cut -c1-300)
 if [ "$code" -ne 0 ] && [ -z "$summary" ]; then summary=$(grep -v '^\s*$' "$agents/$id.err" 2>/dev/null | tail -1 | cut -c1-300); fi
 emit id "$id" status "$status" code "$code" summary "$summary"

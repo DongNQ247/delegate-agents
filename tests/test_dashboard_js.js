@@ -5,8 +5,8 @@ const html = fs.readFileSync('scripts/dashboard.html', 'utf8');
 const match = html.match(/\/\/ <pure>([\s\S]*?)\/\/ <\/pure>/);
 assert.ok(match, 'dashboard.html must expose pure functions');
 const context = { window: {} };
-vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag};', context);
-const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag} = context.window.api;
+vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag, statusLabel};', context);
+const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag, statusLabel} = context.window.api;
 assert.equal(eventFetchError('a.events.jsonl', '404'), '');
 assert.equal(eventFetchError('quota.json', '404'), '404');
 assert.equal(quotaLevel(0.69, '5h'), 'ok');
@@ -32,6 +32,12 @@ assert.deepEqual(Array.from(eventsFromResponse(null), e => e.kind), []);
 assert.deepEqual(Array.from(eventsFromResponse('{"kind":"message"}'), e => e.kind), ['message']);
 assert.equal(statusGroup('timeout'), 'failed');
 assert.equal(statusGroup('done'), 'done');
+assert.equal(statusGroup('cancelled'), 'failed');
+assert.equal(statusLabel('cancelled'), 'cancelled');
+assert.equal(statusLabel('timeout'), 'timeout');
+assert.equal(statusLabel('failed'), '✗');
+assert.equal(statusLabel('done'), '✓');
+assert.equal(statusLabel('running'), '');
 const filteredAgents = {
   p: {id:'p', status:'done', parent:'-'},
   c: {id:'c', status:'running', parent:'p'},

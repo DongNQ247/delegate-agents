@@ -5,5 +5,10 @@ if [ "${FAKE_MODE:-}" = grandchild ]; then  # leave a background grandchild, the
   echo $! > "$FAKE_PIDFILE"
   sleep 300
 fi
+if [ "${FAKE_MODE:-}" = sleep ]; then  # a long-running worker for stop tests
+  echo $$ > "$FAKE_PIDFILE"
+  sleep 300
+fi
+[ "${FAKE_MODE:-}" = race ] && : > "$FAKE_MARKER"  # stop arrives as the worker finishes
 cat "$TEST_ROOT/tests/fixtures/claude.jsonl"
 exit "${FAKE_EXIT:-0}"

@@ -164,4 +164,34 @@ for args in "nosuch claude" "claude-first codex"; do
 done
 test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"; test ! -e "$dir/bad.argv"
 
+# stop cancels a running worker and cleans up its marker files.
+dir="$tmp/stop"; mkdir -p "$dir"
+FAKE_MODE=sleep FAKE_PIDFILE="$dir/w.pid" TIMEOUT=60 AGENTS_LOG="$dir/status.jsonl" \
+  bash "$root/scripts/run-agent.sh" claude test-model - "$dir" st - "p" >/dev/null 2>&1 &
+bg=$!
+for _ in $(seq 50); do [ -s "$dir/w.pid" ] && [ -s "$dir/st.pgid" ] && break; sleep 0.1; done
+AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" stop st
+wait "$bg" || true
+python3 - "$dir/status.jsonl" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1])]
+assert events[-1]["status"] == "cancelled", events
+PY
+! kill -0 "$(cat "$dir/w.pid")" 2>/dev/null
+test ! -e "$dir/st.pgid"; test ! -e "$dir/st.cancelled"
+lines=$(wc -l < "$dir/status.jsonl")
+for target in nosuch st; do  # unknown, then already finished
+  set +e
+  AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" stop "$target" 2>/dev/null
+  code=$?
+  set -e
+  test "$code" -eq 1
+done
+test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"
+
+# A stop marker left after a clean exit does not turn done into cancelled.
+dir="$tmp/stop-race"; mkdir -p "$dir"
+FAKE_MODE=race FAKE_MARKER="$dir/race.cancelled" AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" claude test-model - "$dir" race - "p" >/dev/null
+grep -q '"status": "done"' "$dir/status.jsonl"; test ! -e "$dir/race.cancelled"
+
 echo PASS
