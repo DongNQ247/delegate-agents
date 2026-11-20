@@ -63,8 +63,8 @@ server_pid=
 server_pid2=
 crash_server_pid=
 cleanup() {
-  bash "$root/dashboard.sh" stop "$repo" >/dev/null 2>&1 || true
-  bash "$root/dashboard.sh" stop "$repo2" >/dev/null 2>&1 || true
+  bash "$root/scripts/dashboard.sh" stop "$repo" >/dev/null 2>&1 || true
+  bash "$root/scripts/dashboard.sh" stop "$repo2" >/dev/null 2>&1 || true
   if [ -n "$server_pid" ]; then
     for _ in 1 2 3 4 5; do
       kill -0 "$server_pid" 2>/dev/null || break
@@ -78,7 +78,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo" >/dev/null) || fail "first dashboard start failed"
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo" >/dev/null) || fail "first dashboard start failed"
 require grep -qx '.agents/' "$repo/.git/info/exclude"
 server_pid=$(cat "$repo/.agents/server.pid")
 port=$(cat "$repo/.agents/server.port")
@@ -138,14 +138,14 @@ assert value["codex"]["week"]["used"] == 0.01, value
 assert "claude_gpt" in value.get("agy", {}), value
 PY
 
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "second dashboard start failed"
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo2" >/dev/null) || fail "second dashboard start failed"
 server_pid2=$(cat "$repo2/.agents/server.pid")
 require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid $server_pid2"
 loop_count=$( (pgrep -f -- "$refresher_marker" || true) | wc -l )
 require test "$loop_count" -eq 1
 
-bash "$root/dashboard.sh" stop "$repo" >/dev/null
+bash "$root/scripts/dashboard.sh" stop "$repo" >/dev/null
 for _ in 1 2 3 4 5; do
   kill -0 "$server_pid" 2>/dev/null || break
   sleep 0.1
@@ -174,7 +174,7 @@ done
 require test -n "$current_updated"
 require different "$current_updated" "$first_updated"
 
-bash "$root/dashboard.sh" stop "$repo2" >/dev/null
+bash "$root/scripts/dashboard.sh" stop "$repo2" >/dev/null
 for _ in 1 2 3 4 5; do
   kill -0 "$server_pid2" 2>/dev/null || break
   sleep 0.1
@@ -192,10 +192,10 @@ loop_count=$( (pgrep -f -- "$refresher_marker" || true) | wc -l )
 require test "$loop_count" -eq 0
 
 # Directly killing all served servers still lets the loop exit on its own.
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo" >/dev/null) || fail "crash-case dashboard start failed"
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo" >/dev/null) || fail "crash-case dashboard start failed"
 crash_server_pid=$(cat "$repo/.agents/server.pid")
 crash_refresher_pid=$(sed -n '1p' "$refresher_pid_file")
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "second crash-case dashboard start failed"
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo2" >/dev/null) || fail "second crash-case dashboard start failed"
 crash_server_pid2=$(cat "$repo2/.agents/server.pid")
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$crash_server_pid $crash_server_pid2"
 kill "$crash_server_pid" "$crash_server_pid2" 2>/dev/null || fail "could not kill crash-case dashboard servers"
@@ -207,12 +207,12 @@ if kill -0 "$crash_refresher_pid" 2>/dev/null; then
   fail "refresher did not exit after all served servers died"
 fi
 # Starting a live server replaces the stale refresher state after a crash.
-(cd "$tmp" && bash "$root/dashboard.sh" start "$repo2" >/dev/null) || fail "restart after crash failed"
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo2" >/dev/null) || fail "restart after crash failed"
 server_pid2=$(cat "$repo2/.agents/server.pid")
 new_refresher_pid=$(sed -n '1p' "$refresher_pid_file")
 require different "$new_refresher_pid" "$crash_refresher_pid"
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
-bash "$root/dashboard.sh" stop "$repo2" >/dev/null
+bash "$root/scripts/dashboard.sh" stop "$repo2" >/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if is_dead "$new_refresher_pid"; then break; fi
   sleep 0.2

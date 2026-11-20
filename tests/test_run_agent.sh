@@ -14,7 +14,7 @@ export TIMEOUT=5
 run_worker() {
   local agent=$1 id=$2 dir=$3
   mkdir -p "$dir"
-  AGENTS_LOG="$dir/status.jsonl" bash "$root/run-agent.sh" \
+  AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" \
     "$agent" test-model - "$dir" "$id" - "test prompt"
 }
 
@@ -31,15 +31,15 @@ test "$(cat "$dir/codex-case.out")" = "fake final"
 dir="$tmp/claude"
 mkdir -p "$dir"
 AGENTS_LOG="$dir/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
-  bash "$root/run-agent.sh" claude test-model - "$dir" claude-case - "test prompt"
+  bash "$root/scripts/run-agent.sh" claude test-model - "$dir" claude-case - "test prompt"
 grep -q '"routed_from": "claude"' "$dir/status.jsonl"
 grep -q '"route_reason": "5h at 88%"' "$dir/status.jsonl"
 
 # WAVE adds a wave field to the start event; unset or empty omits it.
 dir="$tmp/wave"
 mkdir -p "$dir"
-AGENTS_LOG="$dir/status.jsonl" WAVE=2 bash "$root/run-agent.sh" claude test-model - "$dir" wave-case - "test prompt"
-AGENTS_LOG="$dir/status.jsonl" WAVE= bash "$root/run-agent.sh" claude test-model - "$dir" nowave-case - "test prompt"
+AGENTS_LOG="$dir/status.jsonl" WAVE=2 bash "$root/scripts/run-agent.sh" claude test-model - "$dir" wave-case - "test prompt"
+AGENTS_LOG="$dir/status.jsonl" WAVE= bash "$root/scripts/run-agent.sh" claude test-model - "$dir" nowave-case - "test prompt"
 python3 - "$dir/status.jsonl" <<'PY'
 import json, sys
 starts = {e["id"]: e for e in map(json.loads, open(sys.argv[1])) if e.get("status") == "running"}
@@ -52,7 +52,7 @@ agents="$tmp/separate/.agents"
 dir="$tmp/separate/worker"
 mkdir -p "$agents" "$dir"
 AGENTS_LOG="$agents/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
-  bash "$root/run-agent.sh" claude test-model - "$dir" claude-separate - "test prompt"
+  bash "$root/scripts/run-agent.sh" claude test-model - "$dir" claude-separate - "test prompt"
 python3 - "$agents" "$dir" <<'PY'
 import json, os, sys
 agents, worker = sys.argv[1:]
@@ -69,7 +69,7 @@ dir="$tmp/agy"
 mkdir -p "$dir"
 set +e
 AGENTS_LOG="$dir/status.jsonl" FAKE_EXIT=3 \
-  bash "$root/run-agent.sh" agy test-model - "$dir" agy-case - "test prompt"
+  bash "$root/scripts/run-agent.sh" agy test-model - "$dir" agy-case - "test prompt"
 code=$?
 set -e
 test "$code" -eq 3
@@ -83,7 +83,7 @@ PY
 dir="$tmp/normalizer-exit"
 mkdir -p "$dir"
 timeout 10 env AGENTS_LOG="$dir/status.jsonl" NORMALIZER=/bin/false \
-  bash "$root/run-agent.sh" agy test-model - "$dir" normalizer-case - "test prompt" || true
+  bash "$root/scripts/run-agent.sh" agy test-model - "$dir" normalizer-case - "test prompt" || true
 test -s "$dir/status.jsonl"
 python3 - "$dir/status.jsonl" <<'PY'
 import json, sys
@@ -96,14 +96,14 @@ PY
 
 # Relative log paths remain anchored to the caller cwd after worker cd.
 mkdir -p "$tmp/relative/worker"
-(cd "$tmp/relative" && AGENTS_LOG=logs/status.jsonl bash "$root/run-agent.sh" codex test-model - worker relative-log - "test prompt")
+(cd "$tmp/relative" && AGENTS_LOG=logs/status.jsonl bash "$root/scripts/run-agent.sh" codex test-model - worker relative-log - "test prompt")
 test -f "$tmp/relative/logs/relative-log.events.jsonl"
 grep -q '"status": "done"' "$tmp/relative/logs/status.jsonl"
 
 # Whitespace-only prompt is rejected before status output.
 dir="$tmp/empty-prompt"; mkdir -p "$dir"
 set +e
-AGENTS_LOG="$dir/status.jsonl" bash "$root/run-agent.sh" codex test-model - "$dir" empty - '   ' 2>"$dir/stderr"
+AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" codex test-model - "$dir" empty - '   ' 2>"$dir/stderr"
 code=$?
 set -e
 test "$code" -eq 2; grep -q usage "$dir/stderr"; test ! -e "$dir/status.jsonl"

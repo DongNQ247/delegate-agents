@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const html = fs.readFileSync('dashboard.html', 'utf8');
+const html = fs.readFileSync('scripts/dashboard.html', 'utf8');
 const match = html.match(/\/\/ <pure>([\s\S]*?)\/\/ <\/pure>/);
 assert.ok(match, 'dashboard.html must expose pure functions');
 const context = { window: {} };

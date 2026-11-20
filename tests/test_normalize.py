@@ -62,7 +62,7 @@ def test_agy_fixture_normalizes_tools_and_final_text(tmp_path):
     assert final_text.startswith("All 92 tests passed")
 
     result = subprocess.run(
-        [sys.executable, str(ROOT / "stream_normalize.py"), "agy", "agent-message", str(tmp_path)],
+        [sys.executable, str(ROOT / "scripts" / "stream_normalize.py"), "agy", "agent-message", str(tmp_path)],
         input=(FIXTURES / "agy.jsonl").read_text(encoding="utf-8"),
         text=True,
         capture_output=True,
@@ -96,7 +96,7 @@ def test_main_skips_non_json_lines_and_preserves_prompt_and_raw_input(tmp_path):
     sessions_dir.mkdir()
     env["DELEGATE_CODEX_SESSIONS"] = str(sessions_dir)
     result = subprocess.run(
-        [sys.executable, str(ROOT / "stream_normalize.py"), "codex", "agent-1", str(tmp_path)],
+        [sys.executable, str(ROOT / "scripts" / "stream_normalize.py"), "codex", "agent-1", str(tmp_path)],
         input=input_text,
         text=True,
         capture_output=True,
@@ -157,7 +157,7 @@ def test_main_drains_stdin_after_a_line_error(tmp_path, monkeypatch):
 def test_main_writes_agy_final_text_to_out(tmp_path):
     fixture = (FIXTURES / "agy.jsonl").read_text(encoding="utf-8")
     result = subprocess.run(
-        [sys.executable, str(ROOT / "stream_normalize.py"), "agy", "agent-3", str(tmp_path)],
+        [sys.executable, str(ROOT / "scripts" / "stream_normalize.py"), "agy", "agent-3", str(tmp_path)],
         input=fixture,
         text=True,
         capture_output=True,
@@ -180,7 +180,7 @@ def test_main_updates_claude_quota(tmp_path, monkeypatch):
     importlib.reload(quota)
     fixture = (FIXTURES / "claude.jsonl").read_text(encoding="utf-8")
     result = subprocess.run(
-        [sys.executable, str(ROOT / "stream_normalize.py"), "claude", "agent-4", str(tmp_path)],
+        [sys.executable, str(ROOT / "scripts" / "stream_normalize.py"), "claude", "agent-4", str(tmp_path)],
         input=fixture,
         text=True,
         capture_output=True,

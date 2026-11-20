@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import waves as W  # noqa: E402
 
 PLANS = os.path.join(ROOT, "docs", "superpowers", "plans")  # local-only (git-ignored); tests needing it skip elsewhere
@@ -105,7 +105,7 @@ def test_dashboard_v2_waves():
 
 
 def cli(*args):
-    return subprocess.run([sys.executable, os.path.join(ROOT, "waves.py"), *args],
+    return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "waves.py"), *args],
                           capture_output=True, text=True)
 
 

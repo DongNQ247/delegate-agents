@@ -1,7 +1,7 @@
 """Self-test for lessons-hook.py: python3 test_lessons_hook.py"""
 import json, os, subprocess, sys, tempfile
 
-HOOK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lessons-hook.py")
+HOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "lessons-hook.py")
 
 def bash(cmd): return {"type": "tool_use", "name": "Bash", "input": {"command": cmd}}
 def edit(path): return {"type": "tool_use", "name": "Edit", "input": {"file_path": path}}
@@ -39,17 +39,22 @@ cases = [
     ("merge after dispatch, nothing handled", [bash(RA), bash("git merge t")], "BOTH"),
     ("merge, lessons handled, report not", [bash(RA), bash("git merge t"), edit("/h/LESSONS.md")], "REPORT"),
 ]
-fails = 0
-for name, entries, expect in cases:
-    out = run(entries)
-    got = None if not out else ("BOTH" if "REPORT.md" in out and "LESSONS.md" in out else "REPORT" if "REPORT.md" in out else "LESSONS")
-    ok = got == expect
-    fails += not ok
-    print(f"{'ok ' if ok else 'FAIL'} {name}: expected {expect}, got {got}")
-assert run([bash(RA), bash("git merge t")], {"stop_hook_active": True}) == "", "must not loop"
-assert subprocess.run([sys.executable, HOOK], input="garbage", capture_output=True, text=True).returncode == 0
-merge = [bash(RA), bash("git merge t")]
-assert "/d/LESSONS.md" in run(merge, env={"CLAUDE_PLUGIN_DATA": "/d"}), "LESSONS must follow CLAUDE_PLUGIN_DATA"
-assert os.path.join(os.path.dirname(HOOK), "LESSONS.md") in run(merge, env={"CLAUDE_PLUGIN_DATA": ""}), "empty CLAUDE_PLUGIN_DATA = unset"
-print("loop guard ok, bad input ok, data path ok")
-sys.exit(1 if fails else 0)
+def test_lessons_hook():
+    fails = 0
+    for name, entries, expect in cases:
+        out = run(entries)
+        got = None if not out else ("BOTH" if "REPORT.md" in out and "LESSONS.md" in out else "REPORT" if "REPORT.md" in out else "LESSONS")
+        ok = got == expect
+        fails += not ok
+        print(f"{'ok ' if ok else 'FAIL'} {name}: expected {expect}, got {got}")
+    assert run([bash(RA), bash("git merge t")], {"stop_hook_active": True}) == "", "must not loop"
+    assert subprocess.run([sys.executable, HOOK], input="garbage", capture_output=True, text=True).returncode == 0
+    merge = [bash(RA), bash("git merge t")]
+    assert "/d/LESSONS.md" in run(merge, env={"CLAUDE_PLUGIN_DATA": "/d"}), "LESSONS must follow CLAUDE_PLUGIN_DATA"
+    assert os.path.join(os.path.dirname(os.path.dirname(HOOK)), "LESSONS.md") in run(merge, env={"CLAUDE_PLUGIN_DATA": ""}), "empty CLAUDE_PLUGIN_DATA = unset"
+    print("loop guard ok, bad input ok, data path ok")
+    assert not fails, "%d case(s) failed" % fails
+
+
+if __name__ == "__main__":
+    test_lessons_hook()

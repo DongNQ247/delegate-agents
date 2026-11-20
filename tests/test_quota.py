@@ -543,7 +543,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def quota_path(**env):
     import subprocess, sys
     base = {k: v for k, v in os.environ.items() if k not in ("DELEGATE_QUOTA", "CLAUDE_PLUGIN_DATA")}
-    base.update(env, PYTHONPATH=REPO)
+    base.update(env, PYTHONPATH=os.path.join(REPO, "scripts"))
     return subprocess.run([sys.executable, "-c", "import quota; print(quota.QUOTA_PATH)"],
                           env=base, capture_output=True, text=True, check=True).stdout.strip()
 
