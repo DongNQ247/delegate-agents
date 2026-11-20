@@ -35,6 +35,8 @@ cases = [
     ("lessons edited BEFORE merge still nags after", [bash(RA), edit("/h/LESSONS.md"), bash("git merge --no-edit -q t")], "BOTH"),
     ("merge then both handled", [bash(RA), bash("git merge t"), edit("/r/.agents/REPORT.md"), edit("/h/LESSONS.md")], None),
     ("merge --abort ignored", [bash(RA), edit("/h/LESSONS.md"), bash("git merge --abort")], None),
+    ("merge-base not a merge", [bash(RA), bash("git merge-base HEAD main")], None),
+    ("merge-tree not a merge", [bash(RA), bash("git merge-tree HEAD main")], None),
     ("new dispatch after lessons", [bash(RA), edit("/h/LESSONS.md"), bash(RA)], None),
     ("merge after dispatch, nothing handled", [bash(RA), bash("git merge t")], "BOTH"),
     ("merge, lessons handled, report not", [bash(RA), bash("git merge t"), edit("/h/LESSONS.md")], "REPORT"),
