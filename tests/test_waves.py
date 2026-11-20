@@ -1,3 +1,4 @@
+import pytest
 import json
 import os
 import subprocess
@@ -7,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import waves as W  # noqa: E402
 
-PLANS = os.path.join(ROOT, "docs", "superpowers", "plans")
+PLANS = os.path.join(ROOT, "docs", "superpowers", "plans")  # local-only (git-ignored); tests needing it skip elsewhere
 
 
 def run(text, cap=5):
@@ -75,7 +76,10 @@ def test_module_prefixed_identifier():
 
 
 def read(name):
-    with open(os.path.join(PLANS, name)) as f:
+    path = os.path.join(PLANS, name)
+    if not os.path.exists(path):
+        pytest.skip("local plan docs not present")
+    with open(path) as f:
         return f.read()
 
 
@@ -105,14 +109,20 @@ def cli(*args):
                           capture_output=True, text=True)
 
 
-def test_cli_json():
-    r = cli(os.path.join(PLANS, "2026-11-19-dashboard-v2.md"), "--json")
+def synthetic_plan(tmp_path):
+    p = tmp_path / "plan.md"
+    p.write_text(task(1) + task(2, interfaces="- Consumes: `x` (Task 1)") + task(3))
+    return str(p)
+
+
+def test_cli_json(tmp_path):
+    r = cli(synthetic_plan(tmp_path), "--json")
     assert r.returncode == 0
-    assert json.loads(r.stdout)["waves"] == [[1, 3, 4], [2]]
+    assert json.loads(r.stdout)["waves"] == [[1, 3], [2]]
 
 
 def test_cli_markdown_and_no_tasks(tmp_path):
-    r = cli(os.path.join(PLANS, "2026-11-19-dashboard-v2.md"))
+    r = cli(synthetic_plan(tmp_path))
     assert r.returncode == 0 and "| Wave | Tasks | Waits for |" in r.stdout
     p = tmp_path / "empty.md"
     p.write_text("# nothing\n")

@@ -9,7 +9,7 @@ Claude (this session) stays orchestrator (plan, split, verify). Workers run head
 Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
 **Lesson book — `${CLAUDE_PLUGIN_DATA}/LESSONS.md`:**
-- Start of a run: seed it if missing with `[ -f ${CLAUDE_PLUGIN_DATA}/LESSONS.md ] || { mkdir -p ${CLAUDE_PLUGIN_DATA} && cp ${CLAUDE_PLUGIN_ROOT}/LESSONS.md ${CLAUDE_PLUGIN_DATA}/; }`, then read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
+- Start of a run: seed it if missing with `[ -f ${CLAUDE_PLUGIN_DATA}/LESSONS.md ] || { mkdir -p ${CLAUDE_PLUGIN_DATA} && cp ${CLAUDE_PLUGIN_ROOT}/LESSONS.template.md ${CLAUDE_PLUGIN_DATA}/LESSONS.md; }`, then read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
 - End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and researcher problems arrive through their summaries.
 - An entry that repeats or gets proven → move its rule into SKILL.md and delete it from LESSONS.md.
 
