@@ -137,13 +137,13 @@ if kill -0 "$gc" 2>/dev/null; then kill "$gc"; echo "FAIL: grandchild $gc surviv
 dir="$tmp/resume"; mkdir -p "$dir"
 for a in codex claude agy; do run_worker "$a" "$a-first" "$dir" >/dev/null; done
 for a in codex claude agy; do
-  AGENTS_LOG="$dir/status.jsonl" RESUME="$a-first" FAKE_ARGV="$dir/$a.argv" \
+  AGENTS_LOG="$dir/status.jsonl" RESUME="$a-first" FAKE_ARGV="$dir/$a.argv" CTX_WINDOW=1000000 \
     bash "$root/scripts/run-agent.sh" "$a" test-model - "$dir" "$a-fix1" - "fix it" >/dev/null
 done
 grep -q '^exec resume 01a1f2e8-3f38-7870-859a-846c5929cfb3 .*-c sandbox_mode=workspace-write' "$dir/codex.argv"
 grep -q -- '--resume 34cb7732-ccc0-4988-a249-147c0ddeb20a' "$dir/claude.argv"
 grep -q -- '--conversation 97635adb-8352-40cb-8f56-f82c71ce1f59' "$dir/agy.argv"
-AGENTS_LOG="$dir/status.jsonl" RESUME=codex-first MODE=ro FAKE_ARGV="$dir/ro.argv" \
+AGENTS_LOG="$dir/status.jsonl" RESUME=codex-first MODE=ro FAKE_ARGV="$dir/ro.argv" CTX_WINDOW=1000000 \
   bash "$root/scripts/run-agent.sh" codex test-model - "$dir" codex-ro - "review" >/dev/null
 grep -q 'sandbox_mode=read-only' "$dir/ro.argv"
 python3 - "$dir/status.jsonl" <<'PY'
@@ -163,6 +163,36 @@ for args in "nosuch claude" "claude-first codex"; do
   test "$code" -eq 2
 done
 test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"; test ! -e "$dir/bad.argv"
+
+# RESUME is refused at >= 60% of the model window (exit 3, status rotate, CLI not launched).
+dir="$tmp/ctx"; mkdir -p "$dir"
+ctx_resume() {  # id env... -> sets code; stderr in $dir/err
+  local id=$1; shift
+  set +e
+  env AGENTS_LOG="$dir/status.jsonl" RESUME=c1 FAKE_ARGV="$dir/$id.argv" "$@" \
+    bash "$root/scripts/run-agent.sh" claude "${MODEL:-haiku}" - "$dir" "$id" - "next" >/dev/null 2>"$dir/err"
+  code=$?
+  set -e
+}
+# a running worker whose context crosses the limit is never stopped: only RESUME checks .ctx
+AGENTS_LOG="$dir/status.jsonl" CTX_LIMIT=0.01 bash "$root/scripts/run-agent.sh" claude haiku - "$dir" c1 - "p" >/dev/null
+test "$(tail -1 "$dir/status.jsonl" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')" = done
+test "$(cat "$dir/c1.ctx")" -eq 27795
+ctx_resume ok; test "$code" -eq 0; test -s "$dir/ok.argv"  # alias haiku: 27795/200000 = 13%
+echo 130000 > "$dir/c1.ctx"
+ctx_resume hot; test "$code" -eq 3; test ! -e "$dir/hot.argv"
+grep -q 'context 65% ≥ 60%: rotate' "$dir/err"
+tail -1 "$dir/status.jsonl" | python3 -c '
+import json, sys
+e = json.load(sys.stdin)
+assert e["id"] == "hot" and e["status"] == "rotate" and e["code"] == "3", e'
+ctx_resume ho HANDOFF=1; test "$code" -eq 0; test -s "$dir/ho.argv"
+ctx_resume ho0 HANDOFF=0; test "$code" -eq 3
+rm "$dir/c1.ctx"
+ctx_resume noctx CTX_WINDOW=1000000; test "$code" -eq 3; grep -q 'no context size' "$dir/err"; test ! -e "$dir/noctx.argv"
+echo 1000 > "$dir/c1.ctx"
+MODEL=test-model ctx_resume unk; test "$code" -eq 3; grep -q 'unknown window: hire fresh' "$dir/err"
+MODEL=claude-opus-5-5 ctx_resume full; test "$code" -eq 0
 
 # stop cancels a running worker and cleans up its marker files.
 dir="$tmp/stop"; mkdir -p "$dir"

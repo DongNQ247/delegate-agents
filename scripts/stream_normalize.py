@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Normalize agent CLI streams into dashboard events and quota snapshots."""
+import glob
 import json
 import os
 import sys
@@ -119,6 +120,36 @@ def _agy(obj, now):
     return events, final_text, hint
 
 
+def _ctx(agent, obj):
+    """Context size of this turn's request, or None. Per-turn fields only: the final result rows are run totals."""
+    if agent == "codex" and obj.get("type") == "turn.completed":
+        return (obj.get("usage") or {}).get("input_tokens")  # cached_input_tokens is a subset of input_tokens
+    if agent == "claude" and obj.get("type") == "assistant" and not obj.get("parent_tool_use_id"):
+        u = obj.get("message", {}).get("usage")  # input_tokens excludes both cache counts
+        return u and u.get("input_tokens", 0) + u.get("cache_creation_input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+    if agent == "agy" and obj.get("event") == "step_update":
+        u = obj.get("step_update", {}).get("usage")  # total_tokens = input + output, so cache_read is extra
+        return u and u.get("input_tokens", 0) + u.get("cache_read_tokens", 0)
+    return None
+
+
+def _codex_last_input(thread_id):
+    """turn.completed sums every request of the turn; the rollout's last_token_usage is the latest request."""
+    sessions_dir = os.path.expanduser(os.environ.get("DELEGATE_CODEX_SESSIONS", "~/.codex/sessions"))
+    found = None
+    for path in glob.glob(os.path.join(sessions_dir, "**", f"*{thread_id}*.jsonl"), recursive=True):
+        with open(path, encoding="utf-8") as stream:
+            for line in stream:
+                if '"last_token_usage"' in line:
+                    found = json.loads(line)["payload"]["info"]["last_token_usage"]["input_tokens"]
+    return found
+
+
+def _write_ctx(agents_dir, agent_id, value):
+    with open(os.path.join(agents_dir, f"{agent_id}.ctx"), "w", encoding="utf-8") as f:
+        f.write(f"{value}\n")
+
+
 def normalize(agent: str, obj: dict, now: float) -> tuple[list[dict], str | None, dict | None]:
     """Return normalized events, optional final text, and optional quota hint."""
     if not isinstance(obj, dict):
@@ -190,6 +221,9 @@ def main(argv=None):
                         session_id = sid  # keep the latest: a resume may report a new id
                         with open(os.path.join(agents_dir, f"{agent_id}.session"), "w", encoding="utf-8") as f:
                             f.write(sid + "\n")
+                    ctx = _ctx(agent, obj) if isinstance(obj, dict) else None
+                    if isinstance(ctx, int) and ctx > 0:
+                        _write_ctx(agents_dir, agent_id, ctx)
                     now = time.time()
                     new_events, text, hint = normalize(agent, obj, now)
                     if agent == "agy" and obj.get("event") == "step_update":
@@ -225,6 +259,9 @@ def main(argv=None):
             if agent == "codex" and thread_id:
                 try:
                     _write_codex_quota(thread_id)
+                    last = _codex_last_input(thread_id)
+                    if last:
+                        _write_ctx(agents_dir, agent_id, last)
                 except Exception as error:
                     try:
                         _write_event(events, _event("error", time.time(), str(error)))

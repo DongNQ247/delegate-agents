@@ -229,3 +229,35 @@ def test_session_file_keeps_latest_and_skips_missing(tmp_path, monkeypatch):
     assert _run_main("claude", lines, tmp_path, monkeypatch).read_text(encoding="utf-8").strip() == "b"
     (tmp_path / "w1.session").unlink()
     assert not _run_main("claude", '{"type":"result"}\nnot json\n', tmp_path, monkeypatch).exists()
+
+
+def _ctx(agent, text, tmp_path, monkeypatch):
+    _run_main(agent, text, tmp_path, monkeypatch)
+    path = tmp_path / "w1.ctx"
+    return int(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def test_ctx_per_vendor_is_latest_turn_not_cumulative_total(tmp_path, monkeypatch):
+    # claude: last assistant 2+3137+24656 (result.usage is the run total); agy: last step 2201+12328 (result is the sum)
+    assert _ctx("claude", (FIXTURES / "claude.jsonl").read_text(encoding="utf-8"), tmp_path, monkeypatch) == 27795
+    assert _ctx("agy", (FIXTURES / "agy.jsonl").read_text(encoding="utf-8"), tmp_path, monkeypatch) == 14529
+
+
+def test_ctx_codex_prefers_rollout_last_request(tmp_path, monkeypatch):
+    stream = (FIXTURES / "codex.jsonl").read_text(encoding="utf-8")
+    # no rollout: turn.completed input_tokens (cached is a subset; the turn's total, an over-estimate)
+    assert _ctx("codex", stream, tmp_path, monkeypatch) == 45277
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    rollout = (FIXTURES / "codex-rollout-sample.jsonl").read_text(encoding="utf-8")
+    (sessions / f"rollout-{SESSION_IDS['codex']}.jsonl").write_text(rollout, encoding="utf-8")
+    assert _ctx("codex", stream, tmp_path, monkeypatch) == 23652
+
+
+def test_ctx_keeps_latest_turn_and_skips_missing_usage(tmp_path, monkeypatch):
+    def turn(n):
+        return json.dumps({"type": "assistant", "message": {"usage": {
+            "input_tokens": n, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}) + "\n"
+    assert _ctx("claude", turn(900) + turn(500), tmp_path, monkeypatch) == 500
+    (tmp_path / "w1.ctx").unlink()
+    assert _ctx("claude", '{"type":"result"}\n', tmp_path, monkeypatch) is None

@@ -9,6 +9,7 @@ A Claude Code plugin that lets Claude act as an **orchestrator**: it plans and v
 - **Acceptance Tester** — acceptance criteria are written at the start of every run (features and bug fixes); after the last merge a Tester checks each one on the running product (CLI, library, or web via Playwright) and reports PASS/FAIL/BLOCKED with evidence to `.agents/test/`. Failures go back to the owning worker, at most 2 rounds.
 - **`run-agent.sh`** — one wrapper for all three CLIs (flags, timeout, closed stdin, read-only mode) that logs every worker to `.agents/status.jsonl`.
   `RESUME=<id>` continues a worker's own session (fix loops), `run-agent.sh stop <id>` cancels a running worker, and verified transient errors (network drop, model at capacity) are resumed automatically up to 2 times (`RETRY=0` disables).
+  Worker reuse: `RESUME` is refused with exit 3 (`rotate`) once the session reaches 60% of the model window; the orchestrator then rotates to a fresh worker with a hand-off note.
 - **Live dashboard** — a local page showing the worker tree, each worker's conversation, and quota for every vendor (refreshed every 5 minutes at no token cost).
 - **Quota-aware routing** — `quota.py pick` moves a task to another vendor when the preferred one is running low.
 - **Parallel waves** — `waves.py` reads a [superpowers](https://github.com/obra/superpowers) writing-plans plan and groups tasks into waves; tasks in one wave share no files and no dependencies, so they run in parallel worktrees.

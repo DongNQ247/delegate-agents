@@ -103,7 +103,7 @@ function eventsFromResponse(text){return text===null?[]:parseJsonl(text)}
 function eventFetchError(file,message){return file.endsWith('.events.jsonl')&&message==='404'?'':message}
 function waveTag(agent){return agent&&agent.wave?`wave ${agent.wave}`:''}
 function statusGroup(status){return status==='running'?'running':status==='done'?'done':'failed'}
-function statusLabel(status){const group=statusGroup(status);return status==='timeout'||status==='cancelled'?status:group==='failed'?'✗':group==='done'?'✓':''}
+function statusLabel(status){const group=statusGroup(status);return status==='timeout'||status==='cancelled'||status==='rotate'?status:group==='failed'?'✗':group==='done'?'✓':''}
 function filterTree(agents,filter){const ids=new Set();for(const [id,a] of Object.entries(agents)){if(filter==='all'||statusGroup(a.status)===filter){let current=id;while(current&&agents[current]&&!ids.has(current)){ids.add(current);current=agents[current].parent}}}return ids}
 function sortSiblings(list,now){const order={running:0,failed:1,done:2};return [...list].sort((a,b)=>{const group=statusGroup(a.status),other=statusGroup(b.status);if(order[group]!==order[other])return order[group]-order[other];return group==='running'?((b.end??now)-b.start)-((a.end??now)-a.start):0})}
 function counts(agents){const out={running:0,done:0,failed:0,all:Object.keys(agents).length};for(const a of Object.values(agents))out[statusGroup(a.status)]++;return out}

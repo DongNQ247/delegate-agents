@@ -61,3 +61,4 @@ assert.equal(agyPoolView({five_hour:{used:0.17, resets_at:100}, updated:50}, 150
 console.log('ok');
 assert.equal(waveTag({wave: '2'}), 'wave 2');
 assert.equal(waveTag({}), '');
+assert.equal(statusLabel('rotate'), 'rotate');
