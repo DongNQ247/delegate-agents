@@ -99,7 +99,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 ### Worker instruction contract
 
 Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use the ponytail skill and superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
-Order every prompt stable-first, task last, so consecutive workers share a cached prefix: role rules · skill lines · AGENTS.md excerpt · LESSONS lines · then goal, files, reuse, acceptance cases.
+Order every prompt stable-first, task last, so consecutive workers share a cached prefix (the CLI's own system prompt is already ~80% cached across processes; this adds the rest): role rules · skill lines · AGENTS.md excerpt · LESSONS lines · then goal, files, reuse, acceptance cases.
 
 
 
@@ -158,6 +158,7 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker; `WAVE=N`; `RESUME=<id>`; `RETRY=` (default 2, `0` disables); `RETRY_WAIT=` (default `"30 90"` seconds).
 - Fix loop: send the reviewer's findings to the implementer's own session with `RESUME=<implementer id>`, same agent, new id `<id>-fixN`, same parent. The prompt holds only the findings, not the full brief again. No `.agents/<id>.session` (or a different agent) → exit 2; start a new worker instead.
+- Reuse is for continuity, not savings: measured 2026-11-20 (Codex `gpt-6-luna`, tiny task) a fresh worker cost 70.8k turn input (81% cached) vs 101.6k for a `RESUME`d one (80% cached) — the resumed history is re-read. Use it when the next task builds on what that worker just learned (fix loops, a follow-up in the same files); otherwise hire fresh.
 - Reuse: a small, sequential task in the same files/module may go to the previous worker with `RESUME` (same vendor; waves keep one worker per task). run-agent checks only at `RESUME`: never stop or interrupt a running worker for context.
 - Rotation: `RESUME` exits 3 (status `rotate`) when the session's context (`.agents/<id>.ctx`, last turn input + cached) is ≥ 60% of the model window, or either is unknown. Then `HANDOFF=1 RESUME=<id>` with "Write a hand-off note: done, files touched, decisions, open items; ≤ 20 lines.", save the reply to `.agents/<id>.handoff.md`, and hire a fresh worker with that note + the task. Fix loops follow the same path.
 - Windows (run-agent `window()`; `CTX_WINDOW=` overrides): Codex `gpt-6-luna` and other 272k models 258,400, `gpt-6.1-*`/`gpt-6.2-sol` 475,000 (`~/.codex/models_cache.json` × 95%); Claude ids and `opus`/`sonnet` 1M, `haiku` 200k (Claude Code model catalog). agy: none verified → never reused.
