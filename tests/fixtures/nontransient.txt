@@ -1,0 +1,5 @@
+README.md:56:- Formulas → LaTeX · Tables → HTML, accurate layout reconstruction
+A request over either limit returns `429 Too Many Requests`.
+{"type":"event_msg","payload":{"type":"error","message":"You've hit your usage limit. To get more access now, send a request to your admin or try again at 6:50 PM.","codex_error_info":"usage_limit_exceeded"}}
+"content":[{"type":"text","text":"You've hit your session limit · resets 11pm (Asia/Bangkok)"}]
+stream disconnected before completion: Incomplete response returned, reason: content_filter

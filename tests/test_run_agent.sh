@@ -133,4 +133,104 @@ gc=$(cat "$dir/gc.pid")
 for _ in $(seq 20); do kill -0 "$gc" 2>/dev/null || break; sleep 0.1; done
 if kill -0 "$gc" 2>/dev/null; then kill "$gc"; echo "FAIL: grandchild $gc survived timeout" >&2; exit 1; fi
 
+# RESUME continues the earlier worker's session with the same agent.
+dir="$tmp/resume"; mkdir -p "$dir"
+for a in codex claude agy; do run_worker "$a" "$a-first" "$dir" >/dev/null; done
+for a in codex claude agy; do
+  AGENTS_LOG="$dir/status.jsonl" RESUME="$a-first" FAKE_ARGV="$dir/$a.argv" \
+    bash "$root/scripts/run-agent.sh" "$a" test-model - "$dir" "$a-fix1" - "fix it" >/dev/null
+done
+grep -q '^exec resume 01a1f2e8-3f38-7870-859a-846c5929cfb3 .*-c sandbox_mode=workspace-write' "$dir/codex.argv"
+grep -q -- '--resume 34cb7732-ccc0-4988-a249-147c0ddeb20a' "$dir/claude.argv"
+grep -q -- '--conversation 97635adb-8352-40cb-8f56-f82c71ce1f59' "$dir/agy.argv"
+AGENTS_LOG="$dir/status.jsonl" RESUME=codex-first MODE=ro FAKE_ARGV="$dir/ro.argv" \
+  bash "$root/scripts/run-agent.sh" codex test-model - "$dir" codex-ro - "review" >/dev/null
+grep -q 'sandbox_mode=read-only' "$dir/ro.argv"
+python3 - "$dir/status.jsonl" <<'PY'
+import json, sys
+starts = {e["id"]: e for e in map(json.loads, open(sys.argv[1])) if e.get("status") == "running"}
+assert starts["claude-fix1"]["resumed_from"] == "claude-first", starts
+assert "resumed_from" not in starts["claude-first"], starts
+PY
+lines=$(wc -l < "$dir/status.jsonl")
+for args in "nosuch claude" "claude-first codex"; do
+  set -- $args
+  set +e
+  AGENTS_LOG="$dir/status.jsonl" RESUME="$1" FAKE_ARGV="$dir/bad.argv" \
+    bash "$root/scripts/run-agent.sh" "$2" test-model - "$dir" bad - "p" 2>/dev/null
+  code=$?
+  set -e
+  test "$code" -eq 2
+done
+test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"; test ! -e "$dir/bad.argv"
+
+# stop cancels a running worker and cleans up its marker files.
+dir="$tmp/stop"; mkdir -p "$dir"
+FAKE_MODE=sleep FAKE_PIDFILE="$dir/w.pid" TIMEOUT=60 AGENTS_LOG="$dir/status.jsonl" \
+  bash "$root/scripts/run-agent.sh" claude test-model - "$dir" st - "p" >/dev/null 2>&1 &
+bg=$!
+for _ in $(seq 50); do [ -s "$dir/w.pid" ] && [ -s "$dir/st.pgid" ] && break; sleep 0.1; done
+AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" stop st
+wait "$bg" || true
+python3 - "$dir/status.jsonl" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1])]
+assert events[-1]["status"] == "cancelled", events
+PY
+! kill -0 "$(cat "$dir/w.pid")" 2>/dev/null
+test ! -e "$dir/st.pgid"; test ! -e "$dir/st.cancelled"
+lines=$(wc -l < "$dir/status.jsonl")
+for target in nosuch st; do  # unknown, then already finished
+  set +e
+  AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" stop "$target" 2>/dev/null
+  code=$?
+  set -e
+  test "$code" -eq 1
+done
+test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"
+
+# A stop marker left after a clean exit does not turn done into cancelled.
+dir="$tmp/stop-race"; mkdir -p "$dir"
+FAKE_MODE=race FAKE_MARKER="$dir/race.cancelled" AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" claude test-model - "$dir" race - "p" >/dev/null
+grep -q '"status": "done"' "$dir/status.jsonl"; test ! -e "$dir/race.cancelled"
+
+# Retry: a verified transient error resumes the session; anything else fails as before.
+retry_case() {  # name agent mode fixture [env...] -> runs a worker, leaves $dir with status/argv
+  local name=$1 a=$2 mode=$3 fx=$4; shift 4
+  dir="$tmp/retry-$name"; mkdir -p "$dir"
+  set +e
+  env "$@" RETRY_WAIT="0 0" FAKE_MODE="$mode" FAKE_FIXTURE="$root/tests/fixtures/$fx" FAKE_STATE="$dir/state" \
+    FAKE_ARGV="$dir/argv" AGENTS_LOG="$dir/status.jsonl" \
+    bash "$root/scripts/run-agent.sh" "$a" test-model - "$dir" "$name" - "do it" >/dev/null 2>&1
+  code=$?
+  set -e
+}
+check_status() {  # final-status retries
+  python3 - "$dir/status.jsonl" "$1" "$2" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1])]
+assert events[-1]["status"] == sys.argv[2], events
+assert [e["retry"] for e in events if "retry" in e] == [str(i) for i in range(1, int(sys.argv[3]) + 1)], events
+PY
+}
+for fx in transient-codex.txt transient-codex-capacity.txt; do
+  retry_case codex-once codex fail-once "$fx"
+  test "$code" -eq 0; check_status done 1
+  sed -n 2p "$dir/argv" | grep -q '^exec resume 01a1f2e8-3f38-7870-859a-846c5929cfb3 .*Continue the task. The previous attempt was interrupted by: '
+  rm -rf "$dir"
+done
+retry_case claude-once claude fail-once transient-claude.txt
+test "$code" -eq 0; check_status done 1
+sed -n 2p "$dir/argv" | grep -q -- '-p Continue the task. The previous attempt was interrupted by: API Error: Connection lost mid-response.*--resume 34cb7732-ccc0-4988-a249-147c0ddeb20a'
+retry_case always codex fail-always transient-codex.txt
+test "$code" -eq 1; check_status failed 2; test "$(wc -l < "$dir/argv")" -eq 3
+for a in codex claude; do
+  retry_case "real-$a" "$a" fail-always nontransient.txt
+  test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+done
+retry_case nosession codex fail-nosession transient-codex.txt
+test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+retry_case off codex fail-always transient-codex.txt RETRY=0
+test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+
 echo PASS

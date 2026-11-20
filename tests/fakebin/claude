@@ -1,8 +1,23 @@
 #!/usr/bin/env bash
+[ -n "${FAKE_ARGV:-}" ] && printf '%s\n' "$*" >> "$FAKE_ARGV"
 if [ "${FAKE_MODE:-}" = grandchild ]; then  # leave a background grandchild, then outlive TIMEOUT
   (trap "" TERM; exec sleep 300) >/dev/null 2>&1 &  # ignores SIGTERM like a slow-to-exit child
   echo $! > "$FAKE_PIDFILE"
   sleep 300
 fi
+if [ "${FAKE_MODE:-}" = sleep ]; then  # a long-running worker for stop tests
+  echo $$ > "$FAKE_PIDFILE"
+  sleep 300
+fi
+[ "${FAKE_MODE:-}" = race ] && : > "$FAKE_MARKER"  # stop arrives as the worker finishes
+case "${FAKE_MODE:-}" in  # fail-*: print FAKE_FIXTURE after the stream and exit 1 (fail-once: first call only)
+  fail-always|fail-once|fail-nosession)
+    if [ "$FAKE_MODE" != fail-once ] || [ ! -e "$FAKE_STATE" ]; then
+      [ -n "${FAKE_STATE:-}" ] && : > "$FAKE_STATE"
+      if [ "$FAKE_MODE" = fail-nosession ]; then grep -v session_id "$TEST_ROOT/tests/fixtures/claude.jsonl"; else cat "$TEST_ROOT/tests/fixtures/claude.jsonl"; fi
+      cat "$FAKE_FIXTURE"
+      exit 1
+    fi ;;
+esac
 cat "$TEST_ROOT/tests/fixtures/claude.jsonl"
 exit "${FAKE_EXIT:-0}"

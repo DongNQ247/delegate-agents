@@ -10,6 +10,7 @@ import quota
 
 TEXT_LIMIT = 2_000
 DETAIL_LIMIT = 8_000
+SESSION_KEYS = {"codex": "thread_id", "claude": "session_id", "agy": "conversation_id"}
 
 
 def _short(value, limit=TEXT_LIMIT):
@@ -155,6 +156,7 @@ def main(argv=None):
     agy_responses = {}
     last_codex_poll = time.monotonic()
     final_text = None
+    session_id = None
     try:
         os.makedirs(agents_dir, exist_ok=True)
     except Exception:
@@ -183,6 +185,11 @@ def main(argv=None):
                         obj = json.loads(line)
                     except (ValueError, TypeError):
                         continue
+                    sid = obj.get(SESSION_KEYS.get(agent)) if isinstance(obj, dict) else None
+                    if isinstance(sid, str) and sid and sid != session_id:
+                        session_id = sid  # keep the latest: a resume may report a new id
+                        with open(os.path.join(agents_dir, f"{agent_id}.session"), "w", encoding="utf-8") as f:
+                            f.write(sid + "\n")
                     now = time.time()
                     new_events, text, hint = normalize(agent, obj, now)
                     if agent == "agy" and obj.get("event") == "step_update":
