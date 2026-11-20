@@ -104,6 +104,8 @@ def edges(tasks):
         for u in tasks[:i]:
             if not t["files_known"]:
                 reasons = ["no Files block"]
+            elif not u["files_known"]:
+                reasons = ["earlier task has no Files block"]
             else:
                 reasons = []
                 if t["consumes_all"]:

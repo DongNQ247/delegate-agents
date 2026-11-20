@@ -145,3 +145,10 @@ def test_consumes_everything_above():
     _, es, ws = run(task(1, "- Modify: `a.py`") + task(2, "- Modify: `b.py`") + t3)
     assert ws == [[1, 2], [3]]
     assert {(e["from"], e["to"]) for e in es} == {(1, 3), (2, 3)}
+
+
+def test_unknown_files_task_blocks_later_tasks():
+    text = "### Task 1: t1\n\nEdit src/x.py by hand.\n\n" + task(2, "- Modify: `src/x.py`")
+    _, es, ws = run(text)
+    assert ws == [[1], [2]]
+    assert "earlier task has no Files block" in es[0]["reason"]
