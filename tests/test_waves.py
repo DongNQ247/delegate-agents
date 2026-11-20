@@ -117,3 +117,21 @@ def test_cli_markdown_and_no_tasks(tmp_path):
     p = tmp_path / "empty.md"
     p.write_text("# nothing\n")
     assert cli(str(p)).returncode != 0
+
+
+def test_inline_files_existing_named_file_kept():
+    # "exist" inside a path or a non-fixture sentence must not hide a written file
+    text = "### Task 1: x\n\n**Files:** modify `existing_helper.py`. Extend the existing parser in `p.py`.\n\n- [ ] go\n"
+    assert W.parse_plan(text)[0]["files"] == {"existing_helper.py", "p.py"}
+
+
+def test_inline_files_fixture_sentence_dropped():
+    text = "### Task 1: x\n\n**Files:** modify `q.py`. The fixtures exist: `f.txt`.\n\n- [ ] go\n"
+    assert W.parse_plan(text)[0]["files"] == {"q.py"}
+
+
+def test_consumes_everything_above():
+    t3 = task(3, "- Modify: `c.py`", interfaces="- Consumes: everything above.")
+    _, es, ws = run(task(1, "- Modify: `a.py`") + task(2, "- Modify: `b.py`") + t3)
+    assert ws == [[1, 2], [3]]
+    assert {(e["from"], e["to"]) for e in es} == {(1, 3), (2, 3)}

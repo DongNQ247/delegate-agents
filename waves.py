@@ -11,6 +11,8 @@ NOISE = {"None", "str", "int", "float", "bool", "dict", "list", "tuple", "set",
          "True", "False", "{}", "[]"}
 IDENT = re.compile(r"[A-Za-z_][\w.-]*")
 TICK = re.compile(r"`([^`]+)`")
+FIXTURE_SENTENCE = re.compile(r"\bfixtures?\b.*\bexist|\bexist\w*\b.*\bfixtures?\b", re.I)
+CONSUMES_ALL = re.compile(r"\b(?:everything|all)\s+(?:above|previous|earlier|prior)\b", re.I)
 FILE_BULLET = re.compile(r"\s*- (Create|Modify|Test|Fixtures?)\b([^:]*):")
 
 
@@ -66,7 +68,7 @@ def parse_plan(text):
         files, readonly = set(), set()
         fl = block(lines, "Files")
         if fl:  # inline line: drop sentences about existing fixtures
-            inline = " ".join(s for s in re.split(r"\.\s", fl[0]) if "exist" not in s)
+            inline = " ".join(s for s in re.split(r"\.\s", fl[0]) if not FIXTURE_SENTENCE.search(TICK.sub("", s)))
             files.update(p for t in TICK.findall(inline) for p in expand(t))
         for line in fl[1:]:
             m = FILE_BULLET.match(line)
@@ -83,6 +85,7 @@ def parse_plan(text):
             "n": int(parts[i]), "title": parts[i + 1].strip(),
             "files": files, "readonly": readonly,
             "consumes_ids": {x for x in map(ident, ctoks) if x},
+            "consumes_all": bool(CONSUMES_ALL.search(cons)),
             "consumes_tasks": {int(n) for n in re.findall(r"\bTask (\d+)", cons)},
             "consumes_paths": {p for t in ctoks for p in expand(t)},
             "produces_ids": {x for x in map(ident, ptoks) if x},
@@ -103,6 +106,8 @@ def edges(tasks):
                 reasons = ["no Files block"]
             else:
                 reasons = []
+                if t["consumes_all"]:
+                    reasons.append("consumes everything above")
                 if u["n"] in t["consumes_tasks"]:
                     reasons.append("consumes Task %d" % u["n"])
                 prod = {short(p) for p in u["produces_ids"]}
