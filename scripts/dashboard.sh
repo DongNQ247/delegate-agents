@@ -60,12 +60,16 @@ ln -sfn "$QUOTA_PATH" "$dir/quota.json"
 excl="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
 mkdir -p "$(dirname "$excl")"; grep -qx '.agents/' "$excl" 2>/dev/null || echo '.agents/' >> "$excl"
 
+# Serialize port choice and the shared refresher.pid update across concurrent starts.
+# shortcut: without flock (e.g. stock macOS) starts are unserialized, add a mkdir lock if that matters.
+exec 9>"$(dirname "$QUOTA_PATH")/dashboard.lock"
+command -v flock >/dev/null && flock 9
 if ! alive; then
   port=8765
   # first free port from 8765 (another repo's dashboard may hold one)
   while python3 -c "import socket,sys; s=socket.socket(); sys.exit(s.connect_ex(('127.0.0.1',$port))!=0)"; do port=$((port+1)); done
   # setsid + full redirection: no inherited pipe (callers using `| tail` would hang); $! is the server itself
-  setsid python3 "$here/dashboard_server.py" "$port" "$dir" </dev/null >/dev/null 2>&1 &
+  setsid python3 "$here/dashboard_server.py" "$port" "$dir" </dev/null >/dev/null 2>&1 9>&- &
   echo $! > "$pidf"
   echo "$port" > "$portf"
   for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/dashboard.html" && break; sleep 0.3; done
@@ -78,7 +82,7 @@ refresher_pid=$(sed -n '1p' "$refresher_pidf" 2>/dev/null || true)
 if [ -z "$refresher_pid" ] || ! kill -0 "$refresher_pid" 2>/dev/null; then
   interval=${DELEGATE_AGY_INTERVAL:-300}
   refresher_marker="dashboard-refresher:$(dirname "$QUOTA_PATH")"
-  setsid sh -c 'while :; do python3 "$3" refresh-all; sleep "$4"; server_pids=$(sed -n "2p" "$5" 2>/dev/null); alive=0; for pid in $server_pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done; [ "$alive" -eq 1 ] || exit; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" "$refresher_pidf" </dev/null >/dev/null 2>&1 &
+  setsid sh -c 'while :; do python3 "$3" refresh-all; sleep "$4"; server_pids=$(sed -n "2p" "$5" 2>/dev/null); alive=0; for pid in $server_pids; do if kill -0 "$pid" 2>/dev/null; then alive=1; fi; done; [ "$alive" -eq 1 ] || exit; done' sh "$refresher_marker" "$server_pid" "$here/quota.py" "$interval" "$refresher_pidf" </dev/null >/dev/null 2>&1 9>&- &
   refresher_pid=$!
   server_pids=$server_pid
   write_refresher_state
@@ -90,6 +94,7 @@ else
   esac
   write_refresher_state
 fi
+exec 9>&-   # release before opening the browser
 url="http://localhost:$(cat "$portf")/dashboard.html"
 
 if [ -z "${NO_OPEN:-}" ]; then
