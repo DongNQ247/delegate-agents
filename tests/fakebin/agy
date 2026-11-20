@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
+[ -n "${FAKE_ARGV:-}" ] && printf '%s\n' "$*" >> "$FAKE_ARGV"
 cat "$TEST_ROOT/tests/fixtures/agy.jsonl"
 exit "${FAKE_EXIT:-0}"

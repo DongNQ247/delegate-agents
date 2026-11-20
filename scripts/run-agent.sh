@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Run one worker headless and log start/end to $AGENTS_LOG for dashboard.html.
 # usage: AGENTS_LOG=/abs/repo/.agents/status.jsonl bash run-agent.sh <codex|agy|claude> <model> <effort|-> <abs-dir> <id> <parent|-> "<prompt>"
-# env: MODE=ro (read-only review), TIMEOUT=600, WAVE=N (parallel wave, shown on the dashboard)
+# env: MODE=ro (read-only review), TIMEOUT=600, WAVE=N (parallel wave, shown on the dashboard),
+#      RESUME=<earlier id> (continue that worker's session; same agent)
 set -u
 [ $# -eq 7 ] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
 agent=$1 model=$2 effort=$3 dir=$4 id=$5 parent=$6 prompt=$7
@@ -15,13 +16,24 @@ agents=$(dirname "$log")
 mkdir -p "$agents"
 out=$agents/$id.out
 mode=${MODE:-rw} t=${TIMEOUT:-600}
+sid= resumed=()
+if [ -n "${RESUME:-}" ]; then
+  safe "$RESUME" && [ -s "$agents/$RESUME.session" ] || { echo "RESUME: no session recorded for '$RESUME'" >&2; exit 2; }
+  prev=$(python3 -c 'import json,sys
+for l in open(sys.argv[1]):
+    try: e=json.loads(l)
+    except ValueError: continue
+    if e.get("id")==sys.argv[2] and e.get("status")=="running": print(e.get("agent","")); break' "$log" "$RESUME" 2>/dev/null)
+  [ "$prev" = "$agent" ] || { echo "RESUME: '$RESUME' ran agent '${prev:-?}', not '$agent'" >&2; exit 2; }
+  sid=$(head -1 "$agents/$RESUME.session") resumed=(resumed_from "$RESUME")
+fi
 
 emit() {  # key value ... -> one JSON line (short line + O_APPEND keeps parallel writes intact)
   python3 -c 'import json,sys,time; d=dict(zip(sys.argv[1::2],sys.argv[2::2])); d["ts"]=time.time(); print(json.dumps(d))' "$@" >> "$log"
 }
 
 wave=(); [ -n "${WAVE:-}" ] && wave=(wave "$WAVE")
-emit id "$id" parent "$parent" agent "$agent" model "$model" effort "$effort" dir "$dir" mode "$mode" status running task "${prompt:0:200}" routed_from "${ROUTED_FROM:-}" route_reason "${ROUTE_REASON:-}" ${wave[@]+"${wave[@]}"}
+emit id "$id" parent "$parent" agent "$agent" model "$model" effort "$effort" dir "$dir" mode "$mode" status running task "${prompt:0:200}" routed_from "${ROUTED_FROM:-}" route_reason "${ROUTE_REASON:-}" ${wave[@]+"${wave[@]}"} ${resumed[@]+"${resumed[@]}"}
 exec </dev/null  # Codex otherwise waits forever on an inherited open stdin ("Reading additional input from stdin")
 cd "$dir" || { emit id "$id" status failed code 1 summary "cannot cd to $dir"; exit 1; }
 
@@ -42,15 +54,21 @@ run_cli() {
 case "$agent" in
   codex)
     sb=workspace-write; [ "$mode" = ro ] && sb=read-only
-    run_cli codex exec -s "$sb" -m "$model" -c model_reasoning_effort="$effort" -C "$dir" --json -o "$out" "$prompt" ;;
+    if [ -n "$sid" ]; then  # resume takes no -s/-C; we already cd'd to dir
+      run_cli codex exec resume "$sid" -m "$model" -c model_reasoning_effort="$effort" -c sandbox_mode="$sb" --json -o "$out" "$prompt"
+    else
+    run_cli codex exec -s "$sb" -m "$model" -c model_reasoning_effort="$effort" -C "$dir" --json -o "$out" "$prompt"
+    fi ;;
   agy)
     eff=(); [ "$effort" != - ] && eff=(--effort "$effort")
     m=(--mode accept-edits); [ "$mode" = ro ] && m=(--sandbox)
+    [ -n "$sid" ] && m+=(--conversation "$sid")
     run_cli agy -p "$prompt" --model "$model" "${eff[@]}" "${m[@]}" --dangerously-skip-permissions --output-format stream-json ;;
   claude)
     pm=acceptEdits; [ "$mode" = ro ] && pm=plan
+    rs=(); [ -n "$sid" ] && rs=(--resume "$sid")
     run_cli claude -p "$prompt" --model "$model" --effort "$effort" --permission-mode "$pm" \
-      --allowedTools "${ALLOWED_TOOLS:-Bash(python3 -m pytest:*)}" --output-format stream-json --verbose ;;
+      --allowedTools "${ALLOWED_TOOLS:-Bash(python3 -m pytest:*)}" --output-format stream-json --verbose ${rs[@]+"${rs[@]}"} ;;
   *) emit id "$id" status failed code 2 summary "unknown agent $agent"; exit 2 ;;
 esac
 status=done; [ $code -ne 0 ] && status=failed; [ $code -eq 124 ] && status=timeout

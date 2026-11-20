@@ -133,4 +133,35 @@ gc=$(cat "$dir/gc.pid")
 for _ in $(seq 20); do kill -0 "$gc" 2>/dev/null || break; sleep 0.1; done
 if kill -0 "$gc" 2>/dev/null; then kill "$gc"; echo "FAIL: grandchild $gc survived timeout" >&2; exit 1; fi
 
+# RESUME continues the earlier worker's session with the same agent.
+dir="$tmp/resume"; mkdir -p "$dir"
+for a in codex claude agy; do run_worker "$a" "$a-first" "$dir" >/dev/null; done
+for a in codex claude agy; do
+  AGENTS_LOG="$dir/status.jsonl" RESUME="$a-first" FAKE_ARGV="$dir/$a.argv" \
+    bash "$root/scripts/run-agent.sh" "$a" test-model - "$dir" "$a-fix1" - "fix it" >/dev/null
+done
+grep -q '^exec resume 01a1f2e8-3f38-7870-859a-846c5929cfb3 .*-c sandbox_mode=workspace-write' "$dir/codex.argv"
+grep -q -- '--resume 34cb7732-ccc0-4988-a249-147c0ddeb20a' "$dir/claude.argv"
+grep -q -- '--conversation 97635adb-8352-40cb-8f56-f82c71ce1f59' "$dir/agy.argv"
+AGENTS_LOG="$dir/status.jsonl" RESUME=codex-first MODE=ro FAKE_ARGV="$dir/ro.argv" \
+  bash "$root/scripts/run-agent.sh" codex test-model - "$dir" codex-ro - "review" >/dev/null
+grep -q 'sandbox_mode=read-only' "$dir/ro.argv"
+python3 - "$dir/status.jsonl" <<'PY'
+import json, sys
+starts = {e["id"]: e for e in map(json.loads, open(sys.argv[1])) if e.get("status") == "running"}
+assert starts["claude-fix1"]["resumed_from"] == "claude-first", starts
+assert "resumed_from" not in starts["claude-first"], starts
+PY
+lines=$(wc -l < "$dir/status.jsonl")
+for args in "nosuch claude" "claude-first codex"; do
+  set -- $args
+  set +e
+  AGENTS_LOG="$dir/status.jsonl" RESUME="$1" FAKE_ARGV="$dir/bad.argv" \
+    bash "$root/scripts/run-agent.sh" "$2" test-model - "$dir" bad - "p" 2>/dev/null
+  code=$?
+  set -e
+  test "$code" -eq 2
+done
+test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"; test ! -e "$dir/bad.argv"
+
 echo PASS
