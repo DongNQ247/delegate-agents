@@ -14,6 +14,8 @@ implementation plan written. You (orchestrator) never search the web yourself an
 Your first reply to a build request is one clarifying question, using superpowers:brainstorming's questioning:
 one question per message, play back what you heard, until scope is clear (who uses it, must-haves, stack or
 hosting limits, budget for paid services). No research plan, search or dispatch before scope is clear.
+End by writing the acceptance criteria (each must-have becomes one) as a numbered list in the user's words to
+`<repo>/.agents/criteria/YYYY-MM-DD-<topic>.md`.
 
 ## 2. Research plan
 
