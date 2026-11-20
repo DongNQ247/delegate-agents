@@ -33,7 +33,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
 **Where this fits superpowers:** in superpowers:subagent-driven-development, this skill is how you *dispatch the implementer* to Codex/agy instead of a Claude subagent. Keep that skill's per-task spec-compliance review and code-quality review — do them yourself or send them cross-vendor (rule 5). Worktrees: superpowers:using-git-worktrees; parallel dispatch: superpowers:dispatching-parallel-agents.
-Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin list`), so prompt them to use it: "Use superpowers:test-driven-development." 
+Codex and agy have superpowers and ponytail installed too (`codex plugin list`, `agy plugin list`); name the skills in every prompt (see "Skills by role") — never rely on hooks or auto-triggering in headless runs. 
 `codex mcp-server` no longer exists (codex-cli ≥0.170) and agy has no MCP server — use the CLI.
 
 ## Roles (strict separation)
@@ -45,6 +45,20 @@ Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin l
 | Surveyor | Codex `gpt-6-luna` low, `MODE=ro` (id `survey-<topic>`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | before every plan: structure, conventions, reuse table, risks → survey report | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
+
+### Skills by role
+
+Name these in the worker prompt, word for word. If a vendor lacks one (`codex plugin list`, `agy plugin list`, `claude plugin list`), paste the fallback line instead.
+
+| Role | Prompt line | Fallback if missing |
+|---|---|---|
+| Researcher | follows delegate-agents:research (its own prompt) | — |
+| Surveyor | graphify CLI when on PATH (see Survey prompt) | `rg`/`ls` |
+| Worker | "Use the ponytail skill and superpowers:test-driven-development." | "Smallest change that fully works; reuse before writing; no unrequested features or dependencies. Write the failing test first." |
+| Worker on a hard bug | add "Use superpowers:systematic-debugging." | "Find the root cause before changing code." |
+| Reviewer | "Use the ponytail-review skill." | "Review correctness, safety, tests vs acceptance cases, and lines that aren't needed." |
+
+Verified 2026-11-20: headless `codex exec` and `agy -p` both read ponytail's SKILL.md when the prompt names it (ponytail 5.3.3).
 
 Run the survey before every plan. A single trivial task may go straight to a worker.
 
@@ -72,7 +86,7 @@ You then check each evidence path exists (one `grep`/`ls`, not a re-research), s
 ### Who writes tests
 
 - You (orchestrator) write **acceptance cases** in every worker prompt: concrete inputs → expected outputs/errors, including edge cases. That is a spec, not test code.
-- The worker writes unit tests via TDD: "Use superpowers:test-driven-development."
+- The worker writes unit tests via TDD (prompt line in "Skills by role").
 - The cross-vendor reviewer checks the tests against the acceptance cases and lists missing edge cases.
 - **Risky code** (money, security, parsing untrusted input, user data): add a separate test-writer from a different vendor than the implementer. It writes the failing test file first. You commit that file on the task branch. The implementer is told "tests in <file> are given; do not edit them". You verify with `git diff <test-commit> -- <test file>`, which must be empty.
 
@@ -80,7 +94,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 
 ### Worker instruction contract
 
-Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
+Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use the ponytail skill and superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
 
 
 
@@ -163,7 +177,7 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 2. Route by capability first. agy shares routing by pool: `gemini-*` uses Gemini; `claude-*` and `gpt-*` use Claude & GPT. Switch vendors only when the preferred pool/vendor has 5h used ≥85% or week used ≥90%; on a tie, pick the eligible vendor with more headroom. A bare `agy` or unknown model has unknown quota and cannot be a switch target. In a cross-vendor review, two agy models count as one vendor; with only one eligible vendor, warn only. Record every switch in `REPORT.md`.
 3. Parallel writers each get their own worktree — never two writers in one tree. See "Parallel + merge".
 4. Never trust the agent's summary: run the tests and read `git diff` yourself before accepting.
-5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
+5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt starts "Use the ponytail-review skill." and asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
 6. Whoever creates a worktree/branch/server owns merging and cleanup. Workers never merge or clean. A sub-orchestrator hands up only a merged, tested, clean area branch. You (root) finish into master via superpowers:finishing-a-development-branch, stop the dashboard (`dashboard.sh stop <repo>`), and keep `.agents/` logs (git-excluded).
 7. Don't end your turn while a worktree, task branch or server you created still exists — unless the user asked to keep it. Check: `git worktree list`, `git branch`, background tasks.
 

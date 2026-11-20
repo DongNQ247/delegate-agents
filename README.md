@@ -18,7 +18,7 @@ A Claude Code plugin that lets Claude act as an **orchestrator**: it plans and v
 - [Claude Code](https://claude.com/claude-code)
 - At least one worker CLI, logged in: `codex` (≥ 0.170), `agy` (≥ 1.5.12) or `claude`
 - `python3` (stdlib only), `bash`, `git`, `curl`
-- Recommended: the superpowers plugin (the skill builds on its planning, TDD and review skills)
+- Recommended on every vendor you use: the [superpowers](https://github.com/obra/superpowers) and [ponytail](https://github.com/DietrichGebert/ponytail) plugins (workers are told to use them; plain-text fallbacks apply when missing). Optional: [graphify](https://github.com/Graphify-Labs/graphify) for cheaper codebase surveys.
 
 ## Install
 
