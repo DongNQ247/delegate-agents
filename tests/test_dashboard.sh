@@ -138,6 +138,25 @@ assert value["codex"]["week"]["used"] == 0.01, value
 assert "claude_gpt" in value.get("agy", {}), value
 PY
 
+# Only the files dashboard.html fetches are served, and only to a localhost Host header.
+http_code() {  # http_code <path> [curl args...]
+  local path=$1; shift
+  curl -s -o /dev/null -w '%{http_code}' --path-as-is "$@" "http://127.0.0.1:$port/$path"
+}
+printf '{"id":"a1"}\n' > "$repo/.agents/a1.events.jsonl"
+mkdir -p "$repo/.agents/research"
+for f in a1.raw.jsonl a1.err a1.out a1.session research/x.md; do echo secret > "$repo/.agents/$f"; done
+for path in dashboard.html "status.jsonl?t=1" quota.json a1.events.jsonl; do
+  require test "$(http_code "$path")" = 200
+done
+require test "$(http_code dashboard.html -H 'Host: localhost')" = 200
+for path in a1.raw.jsonl a1.err a1.out a1.session research/x.md ../repo/.agents/status.jsonl "%2e%2e/x" .events.jsonl "" research/; do
+  code=$(http_code "$path")
+  case "$code" in 403|404) ;; *) fail "/$path returned $code" ;; esac
+done
+require test "$(http_code dashboard.html -H 'Host: evil.example')" = 403
+require test "$(http_code dashboard.html -H "Host: evil.example:$port")" = 403
+
 (cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo2" >/dev/null) || fail "second dashboard start failed"
 server_pid2=$(cat "$repo2/.agents/server.pid")
 require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"

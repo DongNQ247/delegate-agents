@@ -65,7 +65,7 @@ if ! alive; then
   # first free port from 8765 (another repo's dashboard may hold one)
   while python3 -c "import socket,sys; s=socket.socket(); sys.exit(s.connect_ex(('127.0.0.1',$port))!=0)"; do port=$((port+1)); done
   # setsid + full redirection: no inherited pipe (callers using `| tail` would hang); $! is the server itself
-  setsid python3 -m http.server "$port" --bind 127.0.0.1 --directory "$dir" </dev/null >/dev/null 2>&1 &
+  setsid python3 "$here/dashboard_server.py" "$port" "$dir" </dev/null >/dev/null 2>&1 &
   echo $! > "$pidf"
   echo "$port" > "$portf"
   for _ in 1 2 3 4 5 6 7 8 9 10; do curl -s -o /dev/null "http://127.0.0.1:$port/dashboard.html" && break; sleep 0.3; done

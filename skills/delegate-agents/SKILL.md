@@ -126,7 +126,7 @@ AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/ru
 # end of run (rule 6):
 CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dashboard.sh stop <abs repo>
 ```
-- `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
+- `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). It binds 127.0.0.1, answers only `localhost`/`127.0.0.1` Host headers, and serves only dashboard.html, status.jsonl, quota.json and `<id>.events.jsonl` (prompts, raw/err/out logs and reports stay off the wire). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
 - `NO_OPEN=1` skips the browser (e.g. a sub-orchestrator).
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker; `WAVE=N`; `RESUME=<id>`; `RETRY=` (default 2, `0` disables); `RETRY_WAIT=` (default `"30 90"` seconds).
