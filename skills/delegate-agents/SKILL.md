@@ -1,6 +1,6 @@
 ---
 name: delegate-agents
-description: Use when the user asks to hand work to Codex, Antigravity (agy) or a headless Claude, to use other vendors' agent tokens, to pick a model or reasoning effort for a delegated task, to get a cross-vendor code review, or when executing a plan whose independent tasks could run on another agent.
+description: Use when the user asks to build something new (build / add a feature / make a website or app), to hand work to Codex, Antigravity (agy) or a headless Claude, to use other vendors' agent tokens, to pick a model or reasoning effort for a delegated task, to get a cross-vendor code review, or when executing a plan whose independent tasks could run on another agent.
 ---
 
 # Delegate to Codex / agy / Claude
@@ -8,9 +8,15 @@ description: Use when the user asks to hand work to Codex, Antigravity (agy) or 
 Claude (this session) stays orchestrator (plan, split, verify). Workers run headless via Bash.
 Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
+## Start here
+
+- New functionality (a feature, website, app, integration) → run delegate-agents:research first.
+- Bug fix, refactor, or internal-only change → skip research; say in one line why (e.g. "Bug fix: no research needed").
+- After the user's choice is recorded under `## Decision` in the report → superpowers:writing-plans from the report → the workflow below.
+
 **Lesson book — `${CLAUDE_PLUGIN_DATA}/LESSONS.md`:**
 - Start of a run: seed it if missing with `[ -f ${CLAUDE_PLUGIN_DATA}/LESSONS.md ] || { mkdir -p ${CLAUDE_PLUGIN_DATA} && cp ${CLAUDE_PLUGIN_ROOT}/LESSONS.template.md ${CLAUDE_PLUGIN_DATA}/LESSONS.md; }`, then read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
-- End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and researcher problems arrive through their summaries.
+- End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and reuse-check problems arrive through their summaries.
 - An entry that repeats or gets proven → move its rule into SKILL.md and delete it from LESSONS.md.
 
 **Per-project files (in the repo you're working on):**
@@ -21,7 +27,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
-- The researcher reads `AGENTS.md` too, so keep its "reuse" list current. That makes research cheaper.
+- The reuse check reads `AGENTS.md` too, so keep its "reuse" list current. That makes the reuse check cheaper.
 - A Stop hook (`hooks/lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 -m pytest tests/`.
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
@@ -33,17 +39,18 @@ Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin l
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Orchestrator | you (Claude; always Claude) | split the plan, decide from the research report, write worker instructions, verify, merge, clean | research the codebase itself; write code |
-| Researcher | Codex `gpt-6-luna` low, `MODE=ro` (id `research`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
+| Orchestrator | you (Claude; always Claude) | split the plan, decide from the reuse-check table, write worker instructions, verify, merge, clean | research the codebase or the web itself; write code |
+| Researcher (new functionality only) | Codex `gpt-6-luna` medium, `MODE=ro`, web search (id `research-<topic>`); agy fallback | external prior art: repos, templates, libraries, services → comparison report via delegate-agents:research | choose for the user; edit files |
+| Reuse check | Codex `gpt-6-luna` low, `MODE=ro` (id `reuse-check`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
 
-Run the researcher before every dispatch that has more than one task, or any task that might duplicate existing code. A single trivial task may go straight to a worker.
+Run the reuse check before every dispatch that has more than one task, or any task that might duplicate existing code. A single trivial task may go straight to a worker.
 
-### Research prompt (fill `<tasks>`)
+### Reuse-check prompt (fill `<tasks>`)
 
 ```
-You are the researcher. Do not edit files. Do not implement anything.
+You are the reuse check. Do not edit files. Do not implement anything.
 Repo: <abs path>. If graphify-out/ exists, query it first.
 For EACH task, walk this ladder and stop at the first rung that fully covers it:
 1 not needed / already done  2 exists in this codebase  3 standard library / platform  4 already-installed dependency  5 new code (minimal)
@@ -66,7 +73,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 
 ### Worker instruction contract
 
-Every worker prompt contains: goal · files to touch · what to reuse (from research) · acceptance cases · test command · "Use superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
+Every worker prompt contains: goal · files to touch · what to reuse (from the reuse check) · acceptance cases · test command · "Use superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
 
 
 
