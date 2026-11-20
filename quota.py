@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 QUOTA_PATH = os.environ.get(
     "DELEGATE_QUOTA",
-    os.path.join(os.path.dirname(__file__), "state", "quota.json"),
+    os.path.join(os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.dirname(__file__), "state", "quota.json"),
 )
 
 
