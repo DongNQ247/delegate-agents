@@ -194,4 +194,43 @@ dir="$tmp/stop-race"; mkdir -p "$dir"
 FAKE_MODE=race FAKE_MARKER="$dir/race.cancelled" AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" claude test-model - "$dir" race - "p" >/dev/null
 grep -q '"status": "done"' "$dir/status.jsonl"; test ! -e "$dir/race.cancelled"
 
+# Retry: a verified transient error resumes the session; anything else fails as before.
+retry_case() {  # name agent mode fixture [env...] -> runs a worker, leaves $dir with status/argv
+  local name=$1 a=$2 mode=$3 fx=$4; shift 4
+  dir="$tmp/retry-$name"; mkdir -p "$dir"
+  set +e
+  env "$@" RETRY_WAIT="0 0" FAKE_MODE="$mode" FAKE_FIXTURE="$root/tests/fixtures/$fx" FAKE_STATE="$dir/state" \
+    FAKE_ARGV="$dir/argv" AGENTS_LOG="$dir/status.jsonl" \
+    bash "$root/scripts/run-agent.sh" "$a" test-model - "$dir" "$name" - "do it" >/dev/null 2>&1
+  code=$?
+  set -e
+}
+check_status() {  # final-status retries
+  python3 - "$dir/status.jsonl" "$1" "$2" <<'PY'
+import json, sys
+events = [json.loads(line) for line in open(sys.argv[1])]
+assert events[-1]["status"] == sys.argv[2], events
+assert [e["retry"] for e in events if "retry" in e] == [str(i) for i in range(1, int(sys.argv[3]) + 1)], events
+PY
+}
+for fx in transient-codex.txt transient-codex-capacity.txt; do
+  retry_case codex-once codex fail-once "$fx"
+  test "$code" -eq 0; check_status done 1
+  sed -n 2p "$dir/argv" | grep -q '^exec resume 01a1f2e8-3f38-7870-859a-846c5929cfb3 .*Continue the task. The previous attempt was interrupted by: '
+  rm -rf "$dir"
+done
+retry_case claude-once claude fail-once transient-claude.txt
+test "$code" -eq 0; check_status done 1
+sed -n 2p "$dir/argv" | grep -q -- '-p Continue the task. The previous attempt was interrupted by: API Error: Connection lost mid-response.*--resume 34cb7732-ccc0-4988-a249-147c0ddeb20a'
+retry_case always codex fail-always transient-codex.txt
+test "$code" -eq 1; check_status failed 2; test "$(wc -l < "$dir/argv")" -eq 3
+for a in codex claude; do
+  retry_case "real-$a" "$a" fail-always nontransient.txt
+  test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+done
+retry_case nosession codex fail-nosession transient-codex.txt
+test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+retry_case off codex fail-always transient-codex.txt RETRY=0
+test "$code" -eq 1; check_status failed 0; test "$(wc -l < "$dir/argv")" -eq 1
+
 echo PASS

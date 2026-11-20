@@ -2,7 +2,8 @@
 # Run one worker headless and log start/end to $AGENTS_LOG for dashboard.html.
 # usage: AGENTS_LOG=/abs/repo/.agents/status.jsonl bash run-agent.sh <codex|agy|claude> <model> <effort|-> <abs-dir> <id> <parent|-> "<prompt>"
 # env: MODE=ro (read-only review), TIMEOUT=600, WAVE=N (parallel wave, shown on the dashboard),
-#      RESUME=<earlier id> (continue that worker's session; same agent)
+#      RESUME=<earlier id> (continue that worker's session; same agent),
+#      RETRY=2 (resumes after a verified transient error; 0 disables), RETRY_WAIT="30 90" (seconds before each retry)
 # stop:  AGENTS_LOG=... bash run-agent.sh stop <id>   (cancel a running worker; final status "cancelled")
 set -u
 safe() { [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] && [[ $1 != .* ]]; }  # id/parent become file names under .agents
@@ -60,6 +61,7 @@ run_cli() {
   kill -KILL -- -"$(cat "$agents/$id.pgid")" 2>/dev/null; rm -f "$agents/$id.pgid"
 }
 
+launch() {
 case "$agent" in
   codex)
     sb=workspace-write; [ "$mode" = ro ] && sb=read-only
@@ -80,6 +82,41 @@ case "$agent" in
       --allowedTools "${ALLOWED_TOOLS:-Bash(python3 -m pytest:*)}" --output-format stream-json --verbose ${rs[@]+"${rs[@]}"} ;;
   *) emit id "$id" status failed code 2 summary "unknown agent $agent"; exit 2 ;;
 esac
+}
+
+transient() {  # print the reason if the last attempt failed with a known transient error; only evidence-backed text
+  local p pats=()
+  case $agent in
+    codex) pats=(
+      '"message":"stream disconnected before completion: error sending request'  # ~/.codex/sessions/2026/05/03/rollout-...019dee6a....jsonl:2297 (the ": Incomplete response ... content_filter" variant in the codex binary is not transient)
+      '"message":"Selected model is at capacity'  # ~/.codex/sessions/2026/10/26/rollout-...01a17600....jsonl:181 (codex_error_info server_overloaded)
+    ) ;;
+    claude) pats=(
+      '"text":"API Error: Connection lost mid-response'  # a local Claude Code transcript (error server_error)
+    ) ;;
+    *) return 1 ;;  # agy: no transient failure on record yet -> never retried
+  esac
+  for p in "${pats[@]}"; do
+    { cat "$agents/$id.err"; tail -c +$((raw_off + 1)) "$agents/$id.raw.jsonl"; } 2>/dev/null | grep -qF -- "$p" && { echo "${p#*\":\"}"; return 0; }
+  done
+  return 1
+}
+
+retries=${RETRY:-2} waits=(${RETRY_WAIT:-30 90}) n=0
+raw_off=$(stat -c %s "$agents/$id.raw.jsonl" 2>/dev/null || echo 0)
+launch
+while [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ ! -e "$agents/$id.cancelled" ] && [ "$n" -lt "$retries" ] && reason=$(transient); do
+  if [ -s "$agents/$id.session" ]; then
+    sid=$(head -1 "$agents/$id.session") prompt="Continue the task. The previous attempt was interrupted by: $reason."
+  elif grep -qv '"kind": "prompt"' "$agents/$id.events.jsonl" 2>/dev/null; then
+    break  # work happened but no session to resume: a fresh start could repeat edits
+  fi
+  n=$((n + 1))
+  emit id "$id" status running retry "$n" reason "$reason"
+  sleep "${waits[n - 1]:-${waits[${#waits[@]} - 1]}}"
+  raw_off=$(stat -c %s "$agents/$id.raw.jsonl" 2>/dev/null || echo 0)
+  launch
+done
 status=done; [ $code -ne 0 ] && status=failed; [ $code -eq 124 ] && status=timeout
 [ -e "$agents/$id.cancelled" ] && [ $code -ne 0 ] && status=cancelled  # a stop after a clean exit keeps done
 rm -f "$agents/$id.cancelled"

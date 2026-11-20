@@ -10,6 +10,15 @@ while (($#)); do
     shift
   fi
 done
+case "${FAKE_MODE:-}" in  # fail-*: print FAKE_FIXTURE after the stream and exit 1 (fail-once: first call only)
+  fail-always|fail-once|fail-nosession)
+    if [ "$FAKE_MODE" != fail-once ] || [ ! -e "$FAKE_STATE" ]; then
+      [ -n "${FAKE_STATE:-}" ] && : > "$FAKE_STATE"
+      if [ "$FAKE_MODE" = fail-nosession ]; then grep -v thread_id "$TEST_ROOT/tests/fixtures/codex.jsonl"; else cat "$TEST_ROOT/tests/fixtures/codex.jsonl"; fi
+      cat "$FAKE_FIXTURE"
+      exit 1
+    fi ;;
+esac
 cat "$TEST_ROOT/tests/fixtures/codex.jsonl"
 printf 'fake final' > "$out"
 exit "${FAKE_EXIT:-0}"
