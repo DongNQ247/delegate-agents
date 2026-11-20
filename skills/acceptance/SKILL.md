@@ -17,8 +17,8 @@ merged product against the run's criteria, as a user would. You (orchestrator) n
 
 | Project type | Tester does | Vendor |
 |---|---|---|
-| Web UI | start the app, drive it with a Playwright script (see "Verified web route"): click/type per criterion, screenshot, console errors | Codex |
-| CLI / script | run commands with real input, compare output and exit code | Codex |
+| Web UI | you start the app and prepare Playwright (see "Verified web route"); the Tester drives it with a Node script: click/type per criterion, screenshot, console errors | Claude (`ALLOWED_TOOLS="Write,Bash(NODE_PATH=<tools>/node_modules node:*)"`) |
+| CLI / script | run commands with real input, compare output and exit code | Codex, or Claude `MODE=ro` with `ALLOWED_TOOLS="Bash(<exact command prefix>:*)"` (tell it to run the command exactly in that form) |
 | Library | short script using the public API as a user would | Codex |
 | Other (desktop, ML…) | follow the run instructions in `AGENTS.md`; none → stop: "can't self-test", list manual steps for the user | — |
 
@@ -74,6 +74,15 @@ Measured 2026-11-20 (agy 1.5.13, Playwright 1.63.0), static page with a button t
 |---|---|
 | agy `gemini-3.8-flash-high`, `MODE=ro`, prompt "use your browser tools" | FAIL: `browser_*` tools are listed in the init event but none was called in 191s; it curled the page, then tried to drive Windows Chrome from WSL and ran `taskkill /F /IM chrome.exe`. Stopped. |
 | Playwright script in Node with the cached Chromium | PASS in ~1s: text before/after click matched, screenshot written, console errors collected |
+
+Measured 2026-11-20 in real runs:
+- Codex's sandbox cannot bind a port or reach localhost (`PermissionError` on `http.server`), so it can't test a web app; use it for CLI/library checks.
+- A bare `require('playwright')` fails unless the package is installed: you prepare it once per run with
+  `npm i --prefix <scratch>/tools playwright@<version matching the cached Chromium>` (no browser download when the build is cached),
+  start the server yourself, wait until it answers, dispatch the Tester, then stop the server.
+- Claude Tester with that setup: 3/3 criteria checked with evidence + screenshot. With a too-narrow `ALLOWED_TOOLS`
+  it correctly returned BLOCKED (never a false PASS).
+- CLI loop verified end to end: FAIL → `RESUME` owning worker with the evidence → Tester `RESUME`d re-checked all → 3/3 PASS.
 
 So web checks use Playwright, not agy browser tools. The Tester writes a short script outside the repo and runs it with
 the Playwright package whose Chromium build is already in `~/.cache/ms-playwright` (pin the exact version; otherwise
