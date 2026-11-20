@@ -1,0 +1,12 @@
+{
+  "name": "delegate-agents",
+  "owner": {
+    "name": "nqd"
+  },
+  "plugins": [
+    {
+      "name": "delegate-agents",
+      "source": "./"
+    }
+  ]
+}

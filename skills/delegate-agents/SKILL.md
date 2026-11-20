@@ -8,8 +8,8 @@ description: Use when the user asks to hand work to Codex, Antigravity (agy) or 
 Claude (this session) stays orchestrator (plan, split, verify). Workers run headless via Bash.
 Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
-**Lesson book — `LESSONS.md` (this folder):**
-- Start of a run: read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
+**Lesson book — `${CLAUDE_PLUGIN_DATA}/LESSONS.md`:**
+- Start of a run: seed it if missing with `[ -f ${CLAUDE_PLUGIN_DATA}/LESSONS.md ] || { mkdir -p ${CLAUDE_PLUGIN_DATA} && cp ${CLAUDE_PLUGIN_ROOT}/LESSONS.md ${CLAUDE_PLUGIN_DATA}/; }`, then read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
 - End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and researcher problems arrive through their summaries.
 - An entry that repeats or gets proven → move its rule into SKILL.md and delete it from LESSONS.md.
 
@@ -22,7 +22,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
 - The researcher reads `AGENTS.md` too, so keep its "reuse" list current. That makes research cheaper.
-- A Stop hook (`lessons-hook.py`, in `~/.claude/settings.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 test_lessons_hook.py`.
+- A Stop hook (`lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 test_lessons_hook.py`.
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
 **Where this fits superpowers:** in superpowers:subagent-driven-development, this skill is how you *dispatch the implementer* to Codex/agy instead of a Claude subagent. Keep that skill's per-task spec-compliance review and code-quality review — do them yourself or send them cross-vendor (rule 5). Worktrees: superpowers:using-git-worktrees; parallel dispatch: superpowers:dispatching-parallel-agents.
@@ -113,11 +113,11 @@ agy fails fast on an unknown slug (prints the model list) — no silent fallback
 
 **Always start it automatically** when a run dispatches workers (no need to ask the user):
 ```bash
-bash ~/.claude/skills/delegate-agents/dashboard.sh start <abs repo>   # idempotent; opens the browser; prints AGENTS_LOG=… and the URL
+CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/dashboard.sh start <abs repo>   # idempotent; opens the browser; prints AGENTS_LOG=… and the URL
 # each worker (parallel: one `&` per line, then wait):
-AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ~/.claude/skills/delegate-agents/run-agent.sh <codex|agy|claude> <model> <effort|-> <abs worktree> <id> <parent-id|-> "<prompt>"
+AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/run-agent.sh <codex|agy|claude> <model> <effort|-> <abs worktree> <id> <parent-id|-> "<prompt>"
 # end of run (rule 6):
-bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
+CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/dashboard.sh stop <abs repo>
 ```
 - `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
 - `NO_OPEN=1` skips the browser (e.g. a sub-orchestrator).
@@ -127,7 +127,7 @@ bash ~/.claude/skills/delegate-agents/dashboard.sh stop <abs repo>
 - All three vendors refresh for free every 5 minutes through one per-user dashboard refresher. Claude runs `claude -p /usage`; Codex reads session files because `codex exec /status` sends a model request and is not free; agy runs `agy -p /usage`. `pick` refreshes quota data when it is older than 5 minutes. State files are `state/quota.json` and `state/refresher.pid`.
 - The Claude refresh uses `--no-session-persistence` so it adds no history, but the user's hooks still run on each refresh (about every 5 minutes).
 - `DELEGATE_CLAUDE_BIN` and `DELEGATE_AGY_BIN` override the Claude and agy executables; `DELEGATE_AGY_INTERVAL` sets the shared refresh interval (default 300 seconds). `DELEGATE_QUOTA` and `DELEGATE_CODEX_SESSIONS` are test-only environment overrides.
-- Before each dispatch, choose by capability first, then run `python3 ~/.claude/skills/delegate-agents/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. Include agy candidates as `agy:<model>`, e.g. `python3 ~/.claude/skills/delegate-agents/quota.py pick claude claude codex agy:claude-sonnet-4-6`. `gemini-*` uses the Gemini pool; `claude-*` and `gpt-*` use the Claude & GPT pool. Bare `agy` and unknown model names have unknown quota and are never switch targets. Two agy models count as one vendor for cross-vendor review. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
+- Before each dispatch, choose by capability first, then run `CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} python3 ${CLAUDE_PLUGIN_ROOT}/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. Include agy candidates as `agy:<model>`, e.g. `CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} python3 ${CLAUDE_PLUGIN_ROOT}/quota.py pick claude claude codex agy:claude-sonnet-4-6`. `gemini-*` uses the Gemini pool; `claude-*` and `gpt-*` use the Claude & GPT pool. Bare `agy` and unknown model names have unknown quota and are never switch targets. Two agy models count as one vendor for cross-vendor review. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
 - Pass at most one `agy:<model>` per `pick`, and dispatch exactly that model when `pick` returns `agy`.
 - Worker streams create `.agents/<id>.events.jsonl`, `.agents/<id>.raw.jsonl`, and `.agents/<id>.err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The dashboard defaults to the running status chip and also filters done, failed, or all agents; quota cards are yellow, green, or red and agy has Gemini and Claude & GPT pools.
 - Sub-orchestrator (claude) launching children: headless Claude blocks compound commands (`export …; (… & …)` → "can't be checked before it runs"). Give it `ALLOWED_TOOLS="Bash(MODE=ro bash <run-agent path>:*)"` (or without `MODE=ro`) and tell it to send one Bash call per child, in parallel, no cd/export. AGENTS_LOG is inherited.
