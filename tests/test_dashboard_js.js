@@ -7,7 +7,7 @@ assert.ok(match, 'dashboard.html must expose pure functions');
 const context = { window: {} };
 vm.runInNewContext(match[1] + '\nwindow.api = {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag, statusLabel};', context);
 const {reduceStatus, latestActivity, quotaLevel, ageText, parseJsonl, conversation, rootAgents, eventsFromResponse, eventFetchError, statusGroup, filterTree, sortSiblings, counts, agyPoolView, waveTag, statusLabel} = context.window.api;
-assert.equal(eventFetchError('a.events.jsonl', '404'), '');
+assert.equal(eventFetchError('a/events.jsonl', '404'), '');
 assert.equal(eventFetchError('quota.json', '404'), '404');
 assert.equal(quotaLevel(0.69, '5h'), 'ok');
 assert.equal(quotaLevel(0.70, '5h'), 'warn');

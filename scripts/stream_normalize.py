@@ -146,7 +146,7 @@ def _codex_last_input(thread_id):
 
 
 def _write_ctx(agents_dir, agent_id, value):
-    with open(os.path.join(agents_dir, f"{agent_id}.ctx"), "w", encoding="utf-8") as f:
+    with open(os.path.join(agents_dir, agent_id, "ctx"), "w", encoding="utf-8") as f:
         f.write(f"{value}\n")
 
 
@@ -180,16 +180,17 @@ def main(argv=None):
     if len(argv) != 3:
         return 2
     agent, agent_id, agents_dir = argv
-    raw_path = os.path.join(agents_dir, f"{agent_id}.raw.jsonl")
-    events_path = os.path.join(agents_dir, f"{agent_id}.events.jsonl")
-    out_path = os.path.join(agents_dir, f"{agent_id}.out")
+    agent_dir = os.path.join(agents_dir, agent_id)  # one folder per agent
+    raw_path = os.path.join(agent_dir, "raw.jsonl")
+    events_path = os.path.join(agent_dir, "events.jsonl")
+    out_path = os.path.join(agent_dir, "out")
     thread_id = None
     agy_responses = {}
     last_codex_poll = time.monotonic()
     final_text = None
     session_id = None
     try:
-        os.makedirs(agents_dir, exist_ok=True)
+        os.makedirs(agent_dir, exist_ok=True)
     except Exception:
         try:
             for _ in sys.stdin:
@@ -219,7 +220,7 @@ def main(argv=None):
                     sid = obj.get(SESSION_KEYS.get(agent)) if isinstance(obj, dict) else None
                     if isinstance(sid, str) and sid and sid != session_id:
                         session_id = sid  # keep the latest: a resume may report a new id
-                        with open(os.path.join(agents_dir, f"{agent_id}.session"), "w", encoding="utf-8") as f:
+                        with open(os.path.join(agent_dir, "session"), "w", encoding="utf-8") as f:
                             f.write(sid + "\n")
                     ctx = _ctx(agent, obj) if isinstance(obj, dict) else None
                     if isinstance(ctx, int) and ctx > 0:

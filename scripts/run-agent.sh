@@ -11,8 +11,8 @@ safe() { [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] && [[ $1 != .* ]]; }  # id/parent become 
 if [ "${1:-}" = stop ]; then
   [ $# -eq 2 ] && safe "$2" || { echo "usage: run-agent.sh stop id" >&2; exit 2; }
   agents=$(dirname "${AGENTS_LOG:?set AGENTS_LOG to the status.jsonl of the workers}")
-  pgid=$(cat "$agents/$2.pgid" 2>/dev/null) && [ -n "$pgid" ] || { echo "stop: $2 is not running" >&2; exit 1; }
-  : > "$agents/$2.cancelled"  # written before the kill so the worker's run-agent reports cancelled
+  pgid=$(cat "$agents/$2/pgid" 2>/dev/null) && [ -n "$pgid" ] || { echo "stop: $2 is not running" >&2; exit 1; }
+  : > "$agents/$2/cancelled"  # written before the kill so the worker's run-agent reports cancelled
   kill -TERM -- -"$pgid" 2>/dev/null
   exit 0
 fi
@@ -24,19 +24,19 @@ here=$(cd "$(dirname "$0")" && pwd)
 log=${AGENTS_LOG:?set AGENTS_LOG to an absolute path like <repo>/.agents/status.jsonl}
 case $log in /*) ;; *) log=$PWD/$log;; esac
 agents=$(dirname "$log")
-mkdir -p "$agents"; rm -f "$agents/$id.cancelled"  # stale marker from an earlier run of this id
-out=$agents/$id.out
+mkdir -p "$agents/$id"; rm -f "$agents/$id/cancelled"  # stale marker from an earlier run of this id
+out=$agents/$id/out
 mode=${MODE:-rw} t=${TIMEOUT:-600}
 sid= resumed=()
 if [ -n "${RESUME:-}" ]; then
-  safe "$RESUME" && [ -s "$agents/$RESUME.session" ] || { echo "RESUME: no session recorded for '$RESUME'" >&2; exit 2; }
+  safe "$RESUME" && [ -s "$agents/$RESUME/session" ] || { echo "RESUME: no session recorded for '$RESUME'" >&2; exit 2; }
   prev=$(python3 -c 'import json,sys
 for l in open(sys.argv[1]):
     try: e=json.loads(l)
     except ValueError: continue
     if e.get("id")==sys.argv[2] and e.get("status")=="running": print(e.get("agent","")); break' "$log" "$RESUME" 2>/dev/null)
   [ "$prev" = "$agent" ] || { echo "RESUME: '$RESUME' ran agent '${prev:-?}', not '$agent'" >&2; exit 2; }
-  sid=$(head -1 "$agents/$RESUME.session") resumed=(resumed_from "$RESUME")
+  sid=$(head -1 "$agents/$RESUME/session") resumed=(resumed_from "$RESUME")
 fi
 
 emit() {  # key value ... -> one JSON line (short line + O_APPEND keeps parallel writes intact)
@@ -54,7 +54,7 @@ window() {  # usable context window in tokens for agent:model; empty = unknown (
   esac
 }
 if [ -n "$sid" ] && [ "${HANDOFF:-}" != 1 ]; then  # only between tasks: a running worker is never stopped for context
-  win=${CTX_WINDOW:-$(window "$agent:$model")} ctx=$(cat "$agents/$RESUME.ctx" 2>/dev/null)
+  win=${CTX_WINDOW:-$(window "$agent:$model")} ctx=$(cat "$agents/$RESUME/ctx" 2>/dev/null)
   if [ -z "$win" ]; then why="unknown window: hire fresh"
   elif ! [[ $ctx =~ ^[0-9]+$ ]]; then why="no context size recorded for '$RESUME': hire fresh"
   else why=$(python3 -c 'import sys; c,w,l=int(sys.argv[1]),int(sys.argv[2]),float(sys.argv[3])
@@ -80,10 +80,10 @@ fi
 
 run_cli() {
   # timeout leads its own process group; -k KILLs a CLI ignoring TERM, the kill below reaps grandchildren that outlive it
-  { timeout -k 10 "$t" "$@" </dev/null 2>"$agents/$id.err" & echo $! >"$agents/$id.pgid"; wait $!; } | \
+  { timeout -k 10 "$t" "$@" </dev/null 2>"$agents/$id/err" & echo $! >"$agents/$id/pgid"; wait $!; } | \
     AGENT_PROMPT="$prompt" "${normalizer[@]}" "$agent" "$id" "$agents"
   code=${PIPESTATUS[0]}
-  kill -KILL -- -"$(cat "$agents/$id.pgid")" 2>/dev/null; rm -f "$agents/$id.pgid"
+  kill -KILL -- -"$(cat "$agents/$id/pgid")" 2>/dev/null; rm -f "$agents/$id/pgid"
 }
 
 launch() {
@@ -122,32 +122,32 @@ transient() {  # print the reason if the last attempt failed with a known transi
     *) return 1 ;;  # agy: no transient failure on record yet -> never retried
   esac
   for p in "${pats[@]}"; do
-    { cat "$agents/$id.err"; tail -c +$((raw_off + 1)) "$agents/$id.raw.jsonl"; } 2>/dev/null | grep -qF -- "$p" && { echo "${p#*\":\"}"; return 0; }
+    { cat "$agents/$id/err"; tail -c +$((raw_off + 1)) "$agents/$id/raw.jsonl"; } 2>/dev/null | grep -qF -- "$p" && { echo "${p#*\":\"}"; return 0; }
   done
   return 1
 }
 
 retries=${RETRY:-2} waits=(${RETRY_WAIT:-30 90}) n=0
-raw_off=$(stat -c %s "$agents/$id.raw.jsonl" 2>/dev/null || echo 0)
+raw_off=$(stat -c %s "$agents/$id/raw.jsonl" 2>/dev/null || echo 0)
 launch
-while [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ ! -e "$agents/$id.cancelled" ] && [ "$n" -lt "$retries" ] && reason=$(transient); do
-  if [ -s "$agents/$id.session" ]; then
-    sid=$(head -1 "$agents/$id.session") prompt="Continue the task. The previous attempt was interrupted by: $reason."
-  elif grep -qv '"kind": "prompt"' "$agents/$id.events.jsonl" 2>/dev/null; then
+while [ "$code" -ne 0 ] && [ "$code" -ne 124 ] && [ ! -e "$agents/$id/cancelled" ] && [ "$n" -lt "$retries" ] && reason=$(transient); do
+  if [ -s "$agents/$id/session" ]; then
+    sid=$(head -1 "$agents/$id/session") prompt="Continue the task. The previous attempt was interrupted by: $reason."
+  elif grep -qv '"kind": "prompt"' "$agents/$id/events.jsonl" 2>/dev/null; then
     break  # work happened but no session to resume: a fresh start could repeat edits
   fi
   n=$((n + 1))
   emit id "$id" status running retry "$n" reason "$reason"
   sleep "${waits[n - 1]:-${waits[${#waits[@]} - 1]}}"
-  raw_off=$(stat -c %s "$agents/$id.raw.jsonl" 2>/dev/null || echo 0)
+  raw_off=$(stat -c %s "$agents/$id/raw.jsonl" 2>/dev/null || echo 0)
   launch
 done
 status=done; [ $code -ne 0 ] && status=failed; [ $code -eq 124 ] && status=timeout
-[ -e "$agents/$id.cancelled" ] && [ $code -ne 0 ] && status=cancelled  # a stop after a clean exit keeps done
-rm -f "$agents/$id.cancelled"
+[ -e "$agents/$id/cancelled" ] && [ $code -ne 0 ] && status=cancelled  # a stop after a clean exit keeps done
+rm -f "$agents/$id/cancelled"
 summary=$(grep -v '^\s*$' "$out" 2>/dev/null | tail -1 | cut -c1-300)
-if [ "$code" -ne 0 ] && [ -z "$summary" ]; then summary=$(grep -v '^\s*$' "$agents/$id.err" 2>/dev/null | tail -1 | cut -c1-300); fi
+if [ "$code" -ne 0 ] && [ -z "$summary" ]; then summary=$(grep -v '^\s*$' "$agents/$id/err" 2>/dev/null | tail -1 | cut -c1-300); fi
 emit id "$id" status "$status" code "$code" summary "$summary"
 cat "$out" 2>/dev/null | tail -5
-if [ "$code" -ne 0 ]; then tail -5 "$agents/$id.err" 2>/dev/null || true; fi
+if [ "$code" -ne 0 ]; then tail -5 "$agents/$id/err" 2>/dev/null || true; fi
 exit $code

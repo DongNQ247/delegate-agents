@@ -69,7 +69,7 @@ def test_agy_fixture_normalizes_tools_and_final_text(tmp_path):
         check=False,
     )
     assert result.returncode == 0
-    emitted = [json.loads(line) for line in (tmp_path / "agent-message.events.jsonl").read_text().splitlines()]
+    emitted = [json.loads(line) for line in (tmp_path / "agent-message" / "events.jsonl").read_text().splitlines()]
     assert any(event["kind"] == "message" and event["text"].strip() for event in emitted)
 
 
@@ -105,8 +105,8 @@ def test_main_skips_non_json_lines_and_preserves_prompt_and_raw_input(tmp_path):
     )
 
     assert result.returncode == 0
-    events = [json.loads(line) for line in (tmp_path / "agent-1.events.jsonl").read_text().splitlines()]
-    raw_lines = (tmp_path / "agent-1.raw.jsonl").read_text().splitlines()
+    events = [json.loads(line) for line in (tmp_path / "agent-1" / "events.jsonl").read_text().splitlines()]
+    raw_lines = (tmp_path / "agent-1" / "raw.jsonl").read_text().splitlines()
     assert events[0]["kind"] == "prompt"
     assert events[0]["text"] == "hi"
     assert len(raw_lines) == len(input_text.splitlines())
@@ -165,7 +165,7 @@ def test_main_writes_agy_final_text_to_out(tmp_path):
     )
 
     assert result.returncode == 0
-    assert (tmp_path / "agent-3.out").read_text(encoding="utf-8") == (
+    assert (tmp_path / "agent-3" / "out").read_text(encoding="utf-8") == (
         "All 92 tests passed successfully after reading "
         "[calc.py](file:///home/user/project/demo/calc.py) and "
         "[stats.py](file:///home/user/project/demo/stats.py).\n"
@@ -206,7 +206,7 @@ def _run_main(agent, text, tmp_path, monkeypatch):
     monkeypatch.setenv("DELEGATE_CODEX_SESSIONS", str(tmp_path / "sessions"))
     monkeypatch.setattr(sys, "stdin", io.StringIO(text))
     stream_normalize.main([agent, "w1", str(tmp_path)])
-    return tmp_path / "w1.session"
+    return tmp_path / "w1" / "session"
 
 
 def test_session_file_codex(tmp_path, monkeypatch):
@@ -227,13 +227,13 @@ def test_session_file_agy(tmp_path, monkeypatch):
 def test_session_file_keeps_latest_and_skips_missing(tmp_path, monkeypatch):
     lines = '{"type":"system","session_id":"a"}\n{"type":"system","session_id":"b"}\n'
     assert _run_main("claude", lines, tmp_path, monkeypatch).read_text(encoding="utf-8").strip() == "b"
-    (tmp_path / "w1.session").unlink()
+    (tmp_path / "w1" / "session").unlink()
     assert not _run_main("claude", '{"type":"result"}\nnot json\n', tmp_path, monkeypatch).exists()
 
 
 def _ctx(agent, text, tmp_path, monkeypatch):
     _run_main(agent, text, tmp_path, monkeypatch)
-    path = tmp_path / "w1.ctx"
+    path = tmp_path / "w1" / "ctx"
     return int(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
@@ -259,5 +259,5 @@ def test_ctx_keeps_latest_turn_and_skips_missing_usage(tmp_path, monkeypatch):
         return json.dumps({"type": "assistant", "message": {"usage": {
             "input_tokens": n, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}) + "\n"
     assert _ctx("claude", turn(900) + turn(500), tmp_path, monkeypatch) == 500
-    (tmp_path / "w1.ctx").unlink()
+    (tmp_path / "w1" / "ctx").unlink()
     assert _ctx("claude", '{"type":"result"}\n', tmp_path, monkeypatch) is None
