@@ -41,7 +41,11 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
 repo="$tmp/repo"
 repo2="$tmp/repo2"
-mkdir -p "$repo" "$repo2"
+repo3="$tmp/repo3"
+repo4="$tmp/repo4"
+mkdir -p "$repo" "$repo2" "$repo3" "$repo4"
+git -C "$repo3" init -q
+git -C "$repo4" init -q
 git -C "$repo" init -q
 git -C "$repo2" init -q
 
@@ -73,6 +77,8 @@ crash_server_pid=
 cleanup() {
   bash "$root/scripts/dashboard.sh" stop "$repo" >/dev/null 2>&1 || true
   bash "$root/scripts/dashboard.sh" stop "$repo2" >/dev/null 2>&1 || true
+  bash "$root/scripts/dashboard.sh" stop "$repo3" >/dev/null 2>&1 || true
+  bash "$root/scripts/dashboard.sh" stop "$repo4" >/dev/null 2>&1 || true
   if [ -n "$server_pid" ]; then
     for _ in 1 2 3 4 5; do
       kill -0 "$server_pid" 2>/dev/null || break
@@ -137,6 +143,25 @@ assert value["codex"]["five_hour"]["used"] == 0.02, value
 assert value["codex"]["week"]["used"] == 0.01, value
 assert "claude_gpt" in value.get("agy", {}), value
 PY
+
+# Only the files dashboard.html fetches are served, and only to a localhost Host header.
+http_code() {  # http_code <path> [curl args...]
+  local path=$1; shift
+  curl -s -o /dev/null -w '%{http_code}' --path-as-is "$@" "http://127.0.0.1:$port/$path"
+}
+printf '{"id":"a1"}\n' > "$repo/.agents/a1.events.jsonl"
+mkdir -p "$repo/.agents/research"
+for f in a1.raw.jsonl a1.err a1.out a1.session research/x.md; do echo secret > "$repo/.agents/$f"; done
+for path in dashboard.html "status.jsonl?t=1" quota.json a1.events.jsonl; do
+  require test "$(http_code "$path")" = 200
+done
+require test "$(http_code dashboard.html -H 'Host: localhost')" = 200
+for path in a1.raw.jsonl a1.err a1.out a1.session research/x.md ../repo/.agents/status.jsonl "%2e%2e/x" .events.jsonl "" research/; do
+  code=$(http_code "$path")
+  case "$code" in 403|404) ;; *) fail "/$path returned $code" ;; esac
+done
+require test "$(http_code dashboard.html -H 'Host: evil.example')" = 403
+require test "$(http_code dashboard.html -H "Host: evil.example:$port")" = 403
 
 (cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo2" >/dev/null) || fail "second dashboard start failed"
 server_pid2=$(cat "$repo2/.agents/server.pid")
@@ -221,5 +246,24 @@ fi
 if [ -e "$refresher_pid_file" ]; then
   fail "crash-recovery refresher state file remains after final stop"
 fi
+
+# Concurrent starts get distinct ports and both pids land in the shared refresher state.
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo3" >/dev/null) &
+(cd "$tmp" && bash "$root/scripts/dashboard.sh" start "$repo4" >/dev/null) &
+wait
+pid3=$(cat "$repo3/.agents/server.pid"); pid4=$(cat "$repo4/.agents/server.pid")
+require different "$(cat "$repo3/.agents/server.port")" "$(cat "$repo4/.agents/server.port")"
+require kill -0 "$pid3"
+require kill -0 "$pid4"
+bound=" $(sed -n '2p' "$refresher_pid_file") "
+case "$bound" in *" $pid3 "*) ;; *) fail "pid $pid3 missing from refresher state: $bound" ;; esac
+case "$bound" in *" $pid4 "*) ;; *) fail "pid $pid4 missing from refresher state: $bound" ;; esac
+concurrent_refresher=$(sed -n '1p' "$refresher_pid_file")
+bash "$root/scripts/dashboard.sh" stop "$repo3" >/dev/null
+bash "$root/scripts/dashboard.sh" stop "$repo4" >/dev/null
+require wait_for 3 is_dead "$pid3"
+require wait_for 3 is_dead "$pid4"
+require wait_for 3 is_dead "$concurrent_refresher"
+require test ! -e "$refresher_pid_file"
 
 echo PASS
