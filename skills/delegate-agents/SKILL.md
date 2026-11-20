@@ -129,7 +129,10 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 - `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
 - `NO_OPEN=1` skips the browser (e.g. a sub-orchestrator).
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
-- `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker.
+- `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker; `WAVE=N`; `RESUME=<id>`; `RETRY=` (default 2, `0` disables); `RETRY_WAIT=` (default `"30 90"` seconds).
+- Fix loop: send the reviewer's findings to the implementer's own session with `RESUME=<implementer id>`, same agent, new id `<id>-fixN`, same parent. The prompt holds only the findings, not the full brief again. No `.agents/<id>.session` (or a different agent) → exit 2; start a new worker instead.
+- Stop a worker: `AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh stop <id>` kills its process group; final status `cancelled`. Exit 1 = not running (unknown or already finished).
+- Retry: after a failure matching a known transient error (Codex stream disconnect / model at capacity, Claude "Connection lost mid-response"; agy has none on record), run-agent waits 30s then 90s and resumes the same session with "Continue the task…", at most `RETRY` times; each retry is a `retry N` line in status.jsonl. Real failures, timeouts, usage limits and stops are never retried. `RETRY=0` turns it off.
 - Full worker output: `$R/.agents/<id>.out`.
 - All three vendors refresh for free every 5 minutes through one per-user dashboard refresher. Claude runs `claude -p /usage`; Codex reads session files because `codex exec /status` sends a model request and is not free; agy runs `agy -p /usage`. `pick` refreshes quota data when it is older than 5 minutes. State files are `state/quota.json` and `state/refresher.pid`.
 - The Claude refresh uses `--no-session-persistence` so it adds no history, but the user's hooks still run on each refresh (about every 5 minutes).
