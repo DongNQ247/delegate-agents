@@ -88,11 +88,11 @@ transient() {  # print the reason if the last attempt failed with a known transi
   local p pats=()
   case $agent in
     codex) pats=(
-      '"message":"stream disconnected before completion: error sending request'  # ~/.codex/sessions/2026/05/03/rollout-...019dee6a....jsonl:2297 (the ": Incomplete response ... content_filter" variant in the codex binary is not transient)
-      '"message":"Selected model is at capacity'  # ~/.codex/sessions/2026/10/26/rollout-...01a17600....jsonl:181 (codex_error_info server_overloaded)
+      '"message":"stream disconnected before completion: error sending request'  # seen in a local codex session log, 2026-05 (the ": Incomplete response ... content_filter" variant in the codex binary is not transient)
+      '"message":"Selected model is at capacity'  # seen in a local codex session log, 2026-10 (codex_error_info server_overloaded)
     ) ;;
     claude) pats=(
-      '"text":"API Error: Connection lost mid-response'  # a local Claude Code transcript (error server_error)
+      '"text":"API Error: Connection lost mid-response'  # seen in a local Claude Code transcript, 2026-11 (error server_error)
     ) ;;
     *) return 1 ;;  # agy: no transient failure on record yet -> never retried
   esac
