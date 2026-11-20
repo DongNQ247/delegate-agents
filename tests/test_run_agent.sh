@@ -25,8 +25,8 @@ import json, sys
 events = [json.loads(line) for line in open(sys.argv[1])]
 assert events[-1]["status"] == "done", events
 PY
-grep -q '"kind": "command"' "$dir/codex-case.events.jsonl"
-test "$(cat "$dir/codex-case.out")" = "fake final"
+grep -q '"kind": "command"' "$dir/codex-case/events.jsonl"
+test "$(cat "$dir/codex-case/out")" = "fake final"
 
 dir="$tmp/claude"
 mkdir -p "$dir"
@@ -56,8 +56,8 @@ AGENTS_LOG="$agents/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
 python3 - "$agents" "$dir" <<'PY'
 import json, os, sys
 agents, worker = sys.argv[1:]
-for name in ("claude-separate.events.jsonl", "claude-separate.raw.jsonl",
-             "claude-separate.err", "claude-separate.out"):
+for name in ("claude-separate/events.jsonl", "claude-separate/raw.jsonl",
+             "claude-separate/err", "claude-separate/out"):
     assert os.path.isfile(os.path.join(agents, name)), name
 assert not os.listdir(worker), os.listdir(worker)
 events = [json.loads(line) for line in open(os.path.join(agents, "status.jsonl"))]
@@ -97,7 +97,7 @@ PY
 # Relative log paths remain anchored to the caller cwd after worker cd.
 mkdir -p "$tmp/relative/worker"
 (cd "$tmp/relative" && AGENTS_LOG=logs/status.jsonl bash "$root/scripts/run-agent.sh" codex test-model - worker relative-log - "test prompt")
-test -f "$tmp/relative/logs/relative-log.events.jsonl"
+test -f "$tmp/relative/logs/relative-log/events.jsonl"
 grep -q '"status": "done"' "$tmp/relative/logs/status.jsonl"
 
 # Whitespace-only prompt is rejected before status output.
@@ -118,7 +118,7 @@ for args in "../x -" ".hidden -" "ok ../p"; do
   set -e
   test "$code" -eq 2; grep -q usage "$tmp/badid/stderr"
 done
-test ! -e "$dir/status.jsonl"; test ! -e "$tmp/badid/x.out"; test -z "$(ls -A "$dir")"
+test ! -e "$dir/status.jsonl"; test ! -e "$tmp/badid/x/out"; test -z "$(ls -A "$dir")"
 
 # Timeout kills the worker's whole process group, grandchildren included.
 dir="$tmp/grandchild"; mkdir -p "$dir"
@@ -177,9 +177,9 @@ ctx_resume() {  # id env... -> sets code; stderr in $dir/err
 # a running worker whose context crosses the limit is never stopped: only RESUME checks .ctx
 AGENTS_LOG="$dir/status.jsonl" CTX_LIMIT=0.01 bash "$root/scripts/run-agent.sh" claude haiku - "$dir" c1 - "p" >/dev/null
 test "$(tail -1 "$dir/status.jsonl" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')" = done
-test "$(cat "$dir/c1.ctx")" -eq 27795
+test "$(cat "$dir/c1/ctx")" -eq 27795
 ctx_resume ok; test "$code" -eq 0; test -s "$dir/ok.argv"  # alias haiku: 27795/200000 = 13%
-echo 130000 > "$dir/c1.ctx"
+echo 130000 > "$dir/c1/ctx"
 ctx_resume hot; test "$code" -eq 3; test ! -e "$dir/hot.argv"
 grep -q 'context 65% ≥ 60%: rotate' "$dir/err"
 tail -1 "$dir/status.jsonl" | python3 -c '
@@ -188,9 +188,9 @@ e = json.load(sys.stdin)
 assert e["id"] == "hot" and e["status"] == "rotate" and e["code"] == "3", e'
 ctx_resume ho HANDOFF=1; test "$code" -eq 0; test -s "$dir/ho.argv"
 ctx_resume ho0 HANDOFF=0; test "$code" -eq 3
-rm "$dir/c1.ctx"
+rm "$dir/c1/ctx"
 ctx_resume noctx CTX_WINDOW=1000000; test "$code" -eq 3; grep -q 'no context size' "$dir/err"; test ! -e "$dir/noctx.argv"
-echo 1000 > "$dir/c1.ctx"
+echo 1000 > "$dir/c1/ctx"
 MODEL=test-model ctx_resume unk; test "$code" -eq 3; grep -q 'unknown window: hire fresh' "$dir/err"
 MODEL=claude-opus-5-5 ctx_resume full; test "$code" -eq 0
 
@@ -199,7 +199,7 @@ dir="$tmp/stop"; mkdir -p "$dir"
 FAKE_MODE=sleep FAKE_PIDFILE="$dir/w.pid" TIMEOUT=60 AGENTS_LOG="$dir/status.jsonl" \
   bash "$root/scripts/run-agent.sh" claude test-model - "$dir" st - "p" >/dev/null 2>&1 &
 bg=$!
-for _ in $(seq 50); do [ -s "$dir/w.pid" ] && [ -s "$dir/st.pgid" ] && break; sleep 0.1; done
+for _ in $(seq 50); do [ -s "$dir/w.pid" ] && [ -s "$dir/st/pgid" ] && break; sleep 0.1; done
 AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" stop st
 wait "$bg" || true
 python3 - "$dir/status.jsonl" <<'PY'
@@ -208,7 +208,7 @@ events = [json.loads(line) for line in open(sys.argv[1])]
 assert events[-1]["status"] == "cancelled", events
 PY
 ! kill -0 "$(cat "$dir/w.pid")" 2>/dev/null
-test ! -e "$dir/st.pgid"; test ! -e "$dir/st.cancelled"
+test ! -e "$dir/st/pgid"; test ! -e "$dir/st/cancelled"
 lines=$(wc -l < "$dir/status.jsonl")
 for target in nosuch st; do  # unknown, then already finished
   set +e
@@ -221,8 +221,8 @@ test "$(wc -l < "$dir/status.jsonl")" -eq "$lines"
 
 # A stop marker left after a clean exit does not turn done into cancelled.
 dir="$tmp/stop-race"; mkdir -p "$dir"
-FAKE_MODE=race FAKE_MARKER="$dir/race.cancelled" AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" claude test-model - "$dir" race - "p" >/dev/null
-grep -q '"status": "done"' "$dir/status.jsonl"; test ! -e "$dir/race.cancelled"
+FAKE_MODE=race FAKE_MARKER="$dir/race/cancelled" AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" claude test-model - "$dir" race - "p" >/dev/null
+grep -q '"status": "done"' "$dir/status.jsonl"; test ! -e "$dir/race/cancelled"
 
 # Retry: a verified transient error resumes the session; anything else fails as before.
 retry_case() {  # name agent mode fixture [env...] -> runs a worker, leaves $dir with status/argv

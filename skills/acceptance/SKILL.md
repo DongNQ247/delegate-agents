@@ -28,7 +28,7 @@ merged branch, never the main tree. Id `test-<topic>`.
 
 ## 3. Tester prompt
 
-Write it to a file with a quoted heredoc:
+Write it to `<repo>/.agents/test-<topic>/prompt.txt` with a quoted heredoc:
 
 ```
 You are the Tester. Never edit project code or tests, and never change the criteria.

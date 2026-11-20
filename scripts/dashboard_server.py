@@ -2,7 +2,7 @@
 usage: python3 dashboard_server.py <port> <dir>"""
 import http.server, os, re, sys, urllib.parse
 
-ALLOWED = re.compile(r"(dashboard\.html|status\.jsonl|quota\.json|[A-Za-z0-9_-][A-Za-z0-9._-]*\.events\.jsonl)")
+ALLOWED = re.compile(r"(dashboard\.html|status\.jsonl|quota\.json|[A-Za-z0-9_-][A-Za-z0-9._-]*/events\.jsonl)")
 TYPES = {".html": "text/html; charset=utf-8", ".json": "application/json"}
 
 

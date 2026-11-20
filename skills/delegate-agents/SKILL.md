@@ -27,7 +27,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 | File | Git | Holds | Updated |
 |---|---|---|---|
 | `AGENTS.md` (+ symlinks `CLAUDE.md`, `GEMINI.md` → it) | committed | stable instructions for every agent: test command, layout, helpers to reuse, conventions | rarely, when a project rule is confirmed |
-| `.agents/REPORT.md` | git-excluded | progress report, one entry per merged task: date · task · commit · who (agent/model per role) · tests · ctx at end (`.agents/<id>.ctx` ÷ window; ≥ 60% → a LESSONS entry: task shape → size) · review findings · open items | after **every** merged task, by you only |
+| `.agents/REPORT.md` | git-excluded | progress report, one entry per merged task: date · task · commit · who (agent/model per role) · tests · ctx at end (`.agents/<id>/ctx` ÷ window; ≥ 60% → a LESSONS entry: task shape → size) · review findings · open items | after **every** merged task, by you only |
 
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → a lint rule or failing test when it can be checked mechanically, else `AGENTS.md`; a finding true for every project → `LESSONS.md`.
@@ -69,7 +69,7 @@ Run the survey before every plan. A single trivial task may go straight to a wor
 ### Survey prompt (fill `<change>`)
 
 First: `command -v graphify >/dev/null && (cd <abs repo> && graphify update .)` (AST only, no LLM, incremental; never `--mode deep` unless the user asks). Then:
-`TIMEOUT=600 MODE=ro AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh codex gpt-6-luna low <abs repo> survey-<topic> - "$(cat <prompt file>)"`
+`TIMEOUT=600 MODE=ro AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh codex gpt-6-luna low <abs repo> survey-<topic> - "$(cat <abs repo>/.agents/survey-<topic>/prompt.txt)"`
 
 ```
 You are the Surveyor. Do not edit files. Do not implement anything.
@@ -153,24 +153,26 @@ AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/ru
 # end of run (rule 6):
 CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dashboard.sh stop <abs repo>
 ```
-- `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). It binds 127.0.0.1, answers only `localhost`/`127.0.0.1` Host headers, and serves only dashboard.html, status.jsonl, quota.json and `<id>.events.jsonl` (prompts, raw/err/out logs and reports stay off the wire). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
+- `start` creates `.agents/`, refreshes dashboard.html, git-excludes `.agents/`, picks a free port from 8765, and runs the server detached (survives the Bash call). It binds 127.0.0.1, answers only `localhost`/`127.0.0.1` Host headers, and serves only dashboard.html, status.jsonl, quota.json and `<id>/events.jsonl` (prompts, raw/err/out logs and reports stay off the wire). Running it again reuses the server and reopens the page. Tell the user the printed URL once.
 - `NO_OPEN=1` skips the browser (e.g. a sub-orchestrator).
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker; `WAVE=N`; `RESUME=<id>`; `RETRY=` (default 2, `0` disables); `RETRY_WAIT=` (default `"30 90"` seconds).
-- Fix loop: send the reviewer's findings to the implementer's own session with `RESUME=<implementer id>`, same agent, new id `<id>-fixN`, same parent. The prompt holds only the findings, not the full brief again. No `.agents/<id>.session` (or a different agent) → exit 2; start a new worker instead.
+- Fix loop: send the reviewer's findings to the implementer's own session with `RESUME=<implementer id>`, same agent, new id `<id>-fixN`, same parent. The prompt holds only the findings, not the full brief again. No `.agents/<id>/session` (or a different agent) → exit 2; start a new worker instead.
 - Reuse is for continuity, not savings: measured 2026-11-20 (Codex `gpt-6-luna`, tiny task) a fresh worker cost 70.8k turn input (81% cached) vs 101.6k for a `RESUME`d one (80% cached) — the resumed history is re-read. Use it when the next task builds on what that worker just learned (fix loops, a follow-up in the same files); otherwise hire fresh.
 - Reuse: a small, sequential task in the same files/module may go to the previous worker with `RESUME` (same vendor; waves keep one worker per task). run-agent checks only at `RESUME`: never stop or interrupt a running worker for context.
-- Rotation: `RESUME` exits 3 (status `rotate`) when the session's context (`.agents/<id>.ctx`, last turn input + cached) is ≥ 60% of the model window, or either is unknown. Then `HANDOFF=1 RESUME=<id>` with "Write a hand-off note: done, files touched, decisions, open items; ≤ 20 lines.", save the reply to `.agents/<id>.handoff.md`, and hire a fresh worker with that note + the task. Fix loops follow the same path.
+- Rotation: `RESUME` exits 3 (status `rotate`) when the session's context (`.agents/<id>/ctx`, last turn input + cached) is ≥ 60% of the model window, or either is unknown. Then `HANDOFF=1 RESUME=<id>` with "Write a hand-off note: done, files touched, decisions, open items; ≤ 20 lines.", save the reply to `.agents/<id>/handoff.md`, and hire a fresh worker with that note + the task. Fix loops follow the same path.
 - Windows (run-agent `window()`; `CTX_WINDOW=` overrides): Codex `gpt-6-luna` and other 272k models 258,400, `gpt-6.1-*`/`gpt-6.2-sol` 475,000 (`~/.codex/models_cache.json` × 95%); Claude ids and `opus`/`sonnet` 1M, `haiku` 200k (Claude Code model catalog). agy: none verified → never reused.
 - Stop a worker: `AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh stop <id>` kills its process group; final status `cancelled`. Exit 1 = not running (unknown or already finished).
 - Retry: after a failure matching a known transient error (Codex stream disconnect / model at capacity, Claude "Connection lost mid-response"; agy has none on record), run-agent waits 30s then 90s and resumes the same session with "Continue the task…", at most `RETRY` times; each retry is a `retry N` line in status.jsonl. Real failures, timeouts, usage limits and stops are never retried. `RETRY=0` turns it off.
-- Full worker output: `$R/.agents/<id>.out`.
+- Full worker output: `$R/.agents/<id>/out`.
+- Each agent gets one folder `.agents/<id>/`: `prompt.txt` (you write the prompt here, then pass `"$(cat .agents/<id>/prompt.txt)"`), and run-agent writes `out`, `err`, `events.jsonl`, `raw.jsonl`, `session`, `ctx`.
+- Clean up agent folders: after a task's merge and its REPORT entry, `rm -rf "$R/.agents/<id>"` for every agent of that task (implementer, `-fixN`, reviewer, test-writer). After acceptance, remove the `survey-*`, `research-*` and `test-*` folders. Keep `status.jsonl`, `REPORT.md` and the report folders.
 - All three vendors refresh for free every 5 minutes through one per-user dashboard refresher. Claude runs `claude -p /usage`; Codex reads session files because `codex exec /status` sends a model request and is not free; agy runs `agy -p /usage`. `pick` refreshes quota data when it is older than 5 minutes. State files are `state/quota.json` and `state/refresher.pid`.
 - The Claude refresh uses `--no-session-persistence` so it adds no history, but the user's hooks still run on each refresh (about every 5 minutes).
 - `DELEGATE_CLAUDE_BIN` and `DELEGATE_AGY_BIN` override the Claude and agy executables; `DELEGATE_AGY_INTERVAL` sets the shared refresh interval (default 300 seconds). `DELEGATE_QUOTA` and `DELEGATE_CODEX_SESSIONS` are test-only environment overrides.
 - Before each dispatch, choose by capability first, then run `CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} python3 ${CLAUDE_PLUGIN_ROOT}/scripts/quota.py pick <preferred|-> <eligible...>`; it prints `vendor<TAB>reason`. Include agy candidates as `agy:<model>`, e.g. `CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} python3 ${CLAUDE_PLUGIN_ROOT}/scripts/quota.py pick claude claude codex agy:claude-sonnet-4-6`. `gemini-*` uses the Gemini pool; `claude-*` and `gpt-*` use the Claude & GPT pool. Bare `agy` and unknown model names have unknown quota and are never switch targets. Two agy models count as one vendor for cross-vendor review. If the selected vendor differs from the preferred vendor, pass `ROUTED_FROM=<preferred> ROUTE_REASON=<reason>` to `run-agent.sh`.
 - Pass at most one `agy:<model>` per `pick`, and dispatch exactly that model when `pick` returns `agy`.
-- Worker streams create `.agents/<id>.events.jsonl`, `.agents/<id>.raw.jsonl`, and `.agents/<id>.err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The dashboard defaults to the running status chip and also filters done, failed, or all agents; quota cards are yellow, green, or red and agy has Gemini and Claude & GPT pools.
+- Worker streams create `.agents/<id>/events.jsonl`, `.agents/<id>/raw.jsonl`, and `.agents/<id>/err`. Quota snapshots are stored in the per-user `state/quota.json`. These files are git-ignored. The dashboard defaults to the running status chip and also filters done, failed, or all agents; quota cards are yellow, green, or red and agy has Gemini and Claude & GPT pools.
 - Sub-orchestrator (claude) launching children: headless Claude blocks compound commands (`export …; (… & …)` → "can't be checked before it runs"). Give it `ALLOWED_TOOLS="Bash(MODE=ro bash <run-agent path>:*)"` (or without `MODE=ro`) and tell it to send one Bash call per child, in parallel, no cd/export. AGENTS_LOG is inherited.
 
 ## Routing
@@ -200,7 +202,7 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 4. Per worktree: run the tests, read `git diff`, then you commit (`git add -A && git commit -m <task>`).
 5. In the main tree: `git merge --no-edit <task>` one branch at a time; run tests after each merge.
 6. Conflict: expected when tasks append to the same file or edit the same import line. If both sides are additions, keep both, run tests, commit. If the logic truly conflicts, resolve it yourself (Claude) — don't re-delegate a conflicted tree.
-7. Clean up: `git worktree remove ../wt-<task> && git branch -d <task>`.
+7. Clean up: `git worktree remove ../wt-<task> && git branch -d <task>`, then the task's agent folders (see "Clean up agent folders").
 
 To reduce conflicts, split tasks by file/module rather than by feature in the same file.
 Verified: 5 concurrent agents (3 Codex + 2 agy), one file pair each → ~55s wall time, zero merge conflicts, no rate-limit errors. Two agents appending to the same file → conflict every time.
@@ -242,7 +244,7 @@ Verified: 2 areas × 2 tasks (Codex + agy) → 115s, 0 conflicts, 38 tests passi
 
 ## Common mistakes
 
-- Building a worker prompt with `sed` substitution or `$(python -c "...")` breaks on `|`, backticks, and quotes (seen twice: an empty prompt and a lost command). Write the prompt to a file with a quoted heredoc (`<<'EOF'`) and pass `"$(cat file)"`. `run-agent.sh` refuses empty prompts.
+- Building a worker prompt with `sed` substitution or `$(python -c "...")` breaks on `|`, backticks, and quotes (seen twice: an empty prompt and a lost command). Write the prompt to `.agents/<id>/prompt.txt` with a quoted heredoc (`<<'EOF'`) and pass `"$(cat .agents/<id>/prompt.txt)"`. `run-agent.sh` refuses empty prompts.
 
 - Codex launched in background without `</dev/null` → prints "Reading additional input from stdin" and hangs until timeout. run-agent.sh handles it.
 

@@ -31,7 +31,7 @@ Where: GitHub, package registries, vendor sites, recent comparisons
 ## 3. Dispatch
 
 One worker, with the command under "Verified research command", id `research-<topic>`. Start the dashboard
-first as the main skill says. Write the prompt to a file with a quoted heredoc:
+first as the main skill says. Write the prompt to `<repo>/.agents/research-<topic>/prompt.txt` with a quoted heredoc:
 
 ```
 You are the researcher. Do not edit files. Search the web live; do not answer from memory.
@@ -64,13 +64,13 @@ Then return to delegate-agents "Start here".
 ## Verified research command
 
 ```bash
-TIMEOUT=900 MODE=ro AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh codex gpt-6-luna medium <abs repo> research-<topic> - "$(cat <prompt file>)"
+TIMEOUT=900 MODE=ro AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh codex gpt-6-luna medium <abs repo> research-<topic> - "$(cat <abs repo>/.agents/research-<topic>/prompt.txt)"
 ```
 
 Measured 2026-11-20 (codex-cli 0.170, agy 1.5.12), prompt "3 open-source e-commerce repos updated in 2026, with URLs and release dates":
 | Vendor | Time | URLs resolving | Dates after model cutoff | Live search evidence |
 |---|---|---|---|---|
-| Codex `gpt-6-luna` medium, `MODE=ro` | 50s | 6/6 | yes (2026-11-12 … 11-17) | 8 `web_search` events in `.agents/<id>.raw.jsonl` |
+| Codex `gpt-6-luna` medium, `MODE=ro` | 50s | 6/6 | yes (2026-11-12 … 11-17) | 8 `web_search` events in `.agents/<id>/raw.jsonl` |
 | agy `gemini-3.8-flash-high`, `MODE=ro` | 100s | 6/6 | yes (2026-11-17 … 11-19) | `search_web` tool calls in raw log |
 
 - `MODE=ro` does not block web search for either vendor. Codex is the default (half the time); agy is the fallback.
