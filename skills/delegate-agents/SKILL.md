@@ -135,6 +135,7 @@ agy fails fast on an unknown slug (prints the model list) — no silent fallback
 | Claude headless writes code | `cd <dir> && timeout 600 claude -p "<task>" --model M --effort E --permission-mode acceptEdits --allowedTools "Bash(python3 -m pytest:*)"` (adapt the allowed test command; acceptEdits alone blocks Bash, so it cannot run tests) |
 
 - Codex: `-o` keeps only the final message; stdout is a long log — discard it. Repo instructions for Codex go in `AGENTS.md` (auto-loaded).
+- agy `--sandbox` (MODE=ro) is advisory, not a sandbox: with `--dangerously-skip-permissions` it has run host commands (a Windows `taskkill` via WSL interop). Never give agy tasks that tempt it to drive host apps (browsers, desktop apps); use it for reading, research and review.
 - agy headless auto-denies any tool permission (`jetski: no output produced`) unless `--dangerously-skip-permissions`; pair it with `--sandbox` when read-only. Needs one prior interactive login.
 - Long tasks: run with Bash `run_in_background: true`; you're notified on exit.
 
