@@ -30,7 +30,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 | `.agents/REPORT.md` | git-excluded | progress report, one entry per merged task: date · task · commit · who (agent/model per role) · tests · ctx at end (`.agents/<id>.ctx` ÷ window; ≥ 60% → a LESSONS entry: task shape → size) · review findings · open items | after **every** merged task, by you only |
 
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
-- Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
+- Promote: a REPORT finding that is a project rule → a lint rule or failing test when it can be checked mechanically, else `AGENTS.md`; a finding true for every project → `LESSONS.md`.
 - The Surveyor reads `AGENTS.md` too, so keep its "reuse" list current. That makes the survey cheaper.
 - A Stop hook (`hooks/lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 -m pytest ${CLAUDE_PLUGIN_ROOT}/tests`.
 
@@ -80,9 +80,9 @@ For the reuse table, walk this ladder per piece of the change and stop at the fi
 Flag pieces that would each create the same new helper (SHARED).
 Output ONLY these four sections, each at most ~25 lines; every path you cite must exist:
 ## Structure — files/modules the change touches and how they relate
-## Conventions — test command, naming, patterns to follow, how to run the product and check it by hand
+## Conventions — test command, naming, how to run the product and check it by hand, and patterns worth copying (used consistently, not a workaround)
 ## Reuse — table: ID | VERDICT (DROP|REUSE|STDLIB|DEP|SHARED|NEW) | evidence (file:symbol, module, or package) | one-line instruction
-## Risks — fragile or untested areas the change touches
+## Risks — fragile or untested areas the change touches; workarounds/anti-patterns seen nearby (timers or sleeps to dodge races, broad try/except, TODO/HACK, copy-paste, comments justifying a shortcut), each marked "do not copy"
 ```
 
 You then check each evidence path exists (one `grep`/`ls`, not a re-research), save the report to `<repo>/.agents/survey/YYYY-MM-DD-<topic>.md`, promote stable facts (test command, layout, reuse list) to `AGENTS.md`, and turn the table into plan tasks and worker instructions: DROP → no task; REUSE/STDLIB/DEP → name the exact symbol to use; SHARED → one task builds the helper first, the others run after it merges; NEW → normal task.
@@ -98,7 +98,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 
 ### Worker instruction contract
 
-Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use the ponytail skill and superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
+Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use the ponytail skill and superpowers:test-driven-development. No comments that justify a workaround; at most a one-line why. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
 Order every prompt stable-first, task last, so consecutive workers share a cached prefix (the CLI's own system prompt is already ~80% cached across processes; this adds the rest): role rules · skill lines · AGENTS.md excerpt · LESSONS lines · then goal, files, reuse, acceptance cases.
 
 
@@ -187,7 +187,8 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 2. Route by capability first. agy shares routing by pool: `gemini-*` uses Gemini; `claude-*` and `gpt-*` use Claude & GPT. Switch vendors only when the preferred pool/vendor has 5h used ≥85% or week used ≥90%; on a tie, pick the eligible vendor with more headroom. A bare `agy` or unknown model has unknown quota and cannot be a switch target. In a cross-vendor review, two agy models count as one vendor; with only one eligible vendor, warn only. Record every switch in `REPORT.md`.
 3. Parallel writers each get their own worktree — never two writers in one tree. See "Parallel + merge".
 4. Never trust the agent's summary: run the tests and read `git diff` yourself before accepting.
-5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt starts "Use the ponytail-review skill." and asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases."
+5. Cross-vendor review: code written by Codex → review by agy or Claude, not Codex. The review prompt starts "Use the ponytail-review skill." and asks: "Is the code correct? Do the tests cover these acceptance cases: <list>? List missing edge cases." The reviewer also flags comments that justify a workaround (agents copy them as precedent).
+   Same finding a second time in a project → don't just note it again: add a task for a deterministic check (a rule in the project's existing linter, or a test that fails on the pattern) whose message says how to fix it. LESSONS holds only lessons about running this plugin.
 6. Whoever creates a worktree/branch/server owns merging and cleanup. Workers never merge or clean. A sub-orchestrator hands up only a merged, tested, clean area branch. You (root) finish into master via superpowers:finishing-a-development-branch, stop the dashboard (`dashboard.sh stop <repo>`), and keep `.agents/` logs (git-excluded).
 7. Don't end your turn while a worktree, task branch or server you created still exists — unless the user asked to keep it. Check: `git worktree list`, `git branch`, background tasks.
 
