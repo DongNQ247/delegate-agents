@@ -32,9 +32,11 @@ else
 fi
 
 run_cli() {
-  timeout "$t" "$@" </dev/null 2>"$agents/$id.err" | \
+  # timeout leads its own process group; -k KILLs a CLI ignoring TERM, the kill below reaps grandchildren that outlive it
+  { timeout -k 10 "$t" "$@" </dev/null 2>"$agents/$id.err" & echo $! >"$agents/$id.pgid"; wait $!; } | \
     AGENT_PROMPT="$prompt" "${normalizer[@]}" "$agent" "$id" "$agents"
   code=${PIPESTATUS[0]}
+  kill -KILL -- -"$(cat "$agents/$id.pgid")" 2>/dev/null; rm -f "$agents/$id.pgid"
 }
 
 case "$agent" in

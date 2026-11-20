@@ -120,4 +120,17 @@ for args in "../x -" ".hidden -" "ok ../p"; do
 done
 test ! -e "$dir/status.jsonl"; test ! -e "$tmp/badid/x.out"; test -z "$(ls -A "$dir")"
 
+# Timeout kills the worker's whole process group, grandchildren included.
+dir="$tmp/grandchild"; mkdir -p "$dir"
+set +e
+FAKE_MODE=grandchild FAKE_PIDFILE="$dir/gc.pid" TIMEOUT=1 AGENTS_LOG="$dir/status.jsonl" \
+  timeout 60 bash "$root/scripts/run-agent.sh" claude test-model - "$dir" gc - "p" >/dev/null 2>&1
+code=$?
+set -e
+test "$code" -eq 124
+grep -q '"status": "timeout"' "$dir/status.jsonl"
+gc=$(cat "$dir/gc.pid")
+for _ in $(seq 20); do kill -0 "$gc" 2>/dev/null || break; sleep 0.1; done
+if kill -0 "$gc" 2>/dev/null; then kill "$gc"; echo "FAIL: grandchild $gc survived timeout" >&2; exit 1; fi
+
 echo PASS
