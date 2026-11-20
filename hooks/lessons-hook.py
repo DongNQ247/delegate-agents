@@ -10,7 +10,7 @@ import json, os, re, sys
 LESSONS = os.path.join(os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "LESSONS.md")
 QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")  # drop quoted text: fixtures, prompts, echo strings
 DISPATCH = re.compile(r"\bbash\s+(?:\S*run-agent\.sh|\$\{?RA\}?)\s+(?:codex|agy|claude)\b")
-MERGE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?merge\b(?!\s+--abort)")
+MERGE = re.compile(r"\bgit\s+(?:-C\s+\S+\s+)?merge(?![-\w])(?!\s+--abort)")
 
 def events(path):
     """Yield (kind, payload) in transcript order from assistant messages only."""

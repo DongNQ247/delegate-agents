@@ -28,7 +28,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
 - The reuse check reads `AGENTS.md` too, so keep its "reuse" list current. That makes the reuse check cheaper.
-- A Stop hook (`hooks/lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 -m pytest tests/`.
+- A Stop hook (`hooks/lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 -m pytest ${CLAUDE_PLUGIN_ROOT}/tests`.
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
 **Where this fits superpowers:** in superpowers:subagent-driven-development, this skill is how you *dispatch the implementer* to Codex/agy instead of a Claude subagent. Keep that skill's per-task spec-compliance review and code-quality review — do them yourself or send them cross-vendor (rule 5). Worktrees: superpowers:using-git-worktrees; parallel dispatch: superpowers:dispatching-parallel-agents.
@@ -172,7 +172,7 @@ Verified: 5 concurrent agents (3 Codex + 2 agy), one file pair each → ~55s wal
 
 ### Parallel waves (running a writing-plans plan)
 
-After the pre-flight scan, run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/waves.py <plan.md>` (`--json` for machine output) and paste its `| Wave | Tasks | Waits for |` table into the ledger without asking the user. It reads each task's `**Files:**` and `**Interfaces:**` blocks: tasks sharing a written file, or where one Consumes what an earlier one Produces (or says `(Task N)`), go in later waves. A task with no Files block waits for all earlier tasks. Waves have at most 5 tasks.
+After the pre-flight scan, run `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/waves.py <plan.md>` (`--json` for machine output) and paste its `| Wave | Tasks | Waits for |` table into the ledger without asking the user. It reads each task's `**Files:**` and `**Interfaces:**` blocks: tasks sharing a written file, or where one Consumes what an earlier one Produces (or says `(Task N)`), go in later waves. A task with no Files block waits for all earlier tasks, and all later tasks wait for it. Waves have at most 5 tasks.
 
 Per wave:
 1. BASE = the feature-branch head at wave start. One worktree and one implementer per task, dispatched in parallel with `WAVE=<N>` on each `run-agent.sh` call (the dashboard shows a `wave N` tag).

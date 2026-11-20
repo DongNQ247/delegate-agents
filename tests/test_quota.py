@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
 
 def module(monkeypatch, path):
     monkeypatch.setenv("DELEGATE_QUOTA", str(path))
@@ -23,7 +25,7 @@ def module(monkeypatch, path):
 def test_parse_claude_usage_real(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
     now = datetime.datetime(2026, 11, 19, 15, 0, tzinfo=datetime.timezone.utc).timestamp()
-    parsed = q.parse_claude_usage(open("tests/fixtures/claude-usage.txt", encoding="utf-8").read(), now)
+    parsed = q.parse_claude_usage(open(os.path.join(FIXTURES, "claude-usage.txt"), encoding="utf-8").read(), now)
     hcm = ZoneInfo("Asia/Bangkok")
     assert parsed["five_hour"]["used"] == .18
     assert parsed["five_hour"]["resets_at"] == datetime.datetime(2026, 11, 20, 0, 10, tzinfo=hcm).timestamp()
@@ -73,7 +75,7 @@ def test_run_cli_kills_process_group_on_timeout(monkeypatch, tmp_path):
 def test_parse_claude_usage_garbage_and_partial(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
     now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
-    garbage = open("tests/fixtures/claude-usage-garbage.txt", encoding="utf-8").read()
+    garbage = open(os.path.join(FIXTURES, "claude-usage-garbage.txt"), encoding="utf-8").read()
     assert q.parse_claude_usage(garbage, now) == {}
     partial = "Current session: 18% used · resets Nov 20, 12:10am (Asia/Bangkok)"
     assert set(q.parse_claude_usage(partial, now)) == {"five_hour"}
@@ -83,7 +85,7 @@ def test_claude_refresh_cli_fake_bin(monkeypatch, tmp_path, capsys):
     q = module(monkeypatch, tmp_path / "q.json")
     fixed_now = datetime.datetime(2026, 11, 19, 15, tzinfo=datetime.timezone.utc).timestamp()
     monkeypatch.setattr(q.time, "time", lambda: fixed_now)
-    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    fixture = os.path.join(FIXTURES, "claude-usage.txt")
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -101,7 +103,7 @@ def test_claude_refresh_cli_fake_bin(monkeypatch, tmp_path, capsys):
 
 def test_claude_refresh_newer_wins(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
-    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    fixture = os.path.join(FIXTURES, "claude-usage.txt")
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -128,7 +130,7 @@ def test_pick_refreshes_stale_vendors(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(q.time, "time", lambda: fixed_now)
     win = {"used": .1, "resets_at": fixed_now + 3600}
     q.update("claude", win, win, 1)
-    fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
+    fixture = os.path.join(FIXTURES, "claude-usage.txt")
     marker = tmp_path / "ran"
     fake = tmp_path / "claude"
     fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat '{fixture}'\n", encoding="utf-8")
@@ -159,8 +161,8 @@ def test_pick_does_not_retry_failed_claude_within_cooldown(monkeypatch, tmp_path
 
 def test_pick_refreshes_claude_and_agy_concurrently(monkeypatch, tmp_path, capsys):
     q = module(monkeypatch, tmp_path / "q.json")
-    claude_fixture = os.path.abspath("tests/fixtures/claude-usage.txt")
-    agy_fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    claude_fixture = os.path.join(FIXTURES, "claude-usage.txt")
+    agy_fixture = os.path.join(FIXTURES, "agy-usage.txt")
     claude = tmp_path / "claude"
     agy = tmp_path / "agy"
     claude.write_text(f"#!/bin/sh\nsleep 1\ncat '{claude_fixture}'\n", encoding="utf-8")
@@ -256,7 +258,7 @@ def test_codex_from_rollout_fixture(tmp_path):
     import quota
     rollout = tmp_path / "2026" / "11" / "19" / "rollout-x-01a1f2e8.jsonl"
     rollout.parent.mkdir(parents=True)
-    shutil.copy("tests/fixtures/codex-rollout-sample.jsonl", rollout)
+    shutil.copy(os.path.join(FIXTURES, "codex-rollout-sample.jsonl"), rollout)
     five_hour, week, updated = quota.codex_from_rollout(None, str(tmp_path))
     assert five_hour == {"used": .02, "resets_at": 1795089906}
     assert week == {"used": .01, "resets_at": 1795650737}
@@ -363,7 +365,7 @@ def test_cli_pick_and_seed(monkeypatch, tmp_path, capsys):
 
 def test_parse_agy_usage_real(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
-    pools = q.parse_agy_usage(open("tests/fixtures/agy-usage.txt", encoding="utf-8").read())
+    pools = q.parse_agy_usage(open(os.path.join(FIXTURES, "agy-usage.txt"), encoding="utf-8").read())
     assert pools["claude_gpt"]["five_hour"]["used"] == .17
     assert pools["claude_gpt"]["week"]["used"] == .08
     assert pools["gemini"]["five_hour"]["used"] == .03
@@ -375,11 +377,11 @@ def test_parse_agy_usage_real(monkeypatch, tmp_path):
 
 def test_parse_agy_usage_partial_and_garbage(monkeypatch, tmp_path):
     q = module(monkeypatch, tmp_path / "q.json")
-    partial = open("tests/fixtures/agy-usage-partial.txt", encoding="utf-8").read()
+    partial = open(os.path.join(FIXTURES, "agy-usage-partial.txt"), encoding="utf-8").read()
     assert set(q.parse_agy_usage(partial)) == {"gemini"}
     assert set(q.parse_agy_usage(partial)["gemini"]) == {"five_hour", "week"}
-    assert q.parse_agy_usage(open("tests/fixtures/agy-usage-garbage.txt", encoding="utf-8").read()) == {}
-    assert q.parse_agy_usage(open("tests/fixtures/agy-usage-empty.txt", encoding="utf-8").read()) == {}
+    assert q.parse_agy_usage(open(os.path.join(FIXTURES, "agy-usage-garbage.txt"), encoding="utf-8").read()) == {}
+    assert q.parse_agy_usage(open(os.path.join(FIXTURES, "agy-usage-empty.txt"), encoding="utf-8").read()) == {}
     week_only = "Gemini Models\tWeekly Limit Remaining\t99%\t2026-11-26T07:04:26Z\n"
     assert q.parse_agy_usage(week_only) == {}
 
@@ -433,7 +435,7 @@ def test_agy_refresh_cli_with_fake_bin(monkeypatch, tmp_path, capsys):
     fixed_now = datetime.datetime(2026, 11, 19, 8, 0, tzinfo=datetime.timezone.utc).timestamp()
     monkeypatch.setattr(q.time, "time", lambda: fixed_now)
     fake = tmp_path / "agy"
-    fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    fixture = os.path.join(FIXTURES, "agy-usage.txt")
     fake.write_text(f"#!/bin/sh\ncat '{fixture}'\n", encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
@@ -475,7 +477,7 @@ def test_agy_refresh_if_older_skips_fresh(monkeypatch, tmp_path, capsys):
     q.update_agy({"claude_gpt": {"five_hour": {"used": .1}}, "gemini": {"five_hour": {"used": .2}}}, 90)
     marker = tmp_path / "ran"
     fake = tmp_path / "agy"
-    fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat tests/fixtures/agy-usage.txt\n", encoding="utf-8")
+    fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat {os.path.join(FIXTURES, 'agy-usage.txt')}\n", encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
     monkeypatch.setenv("DELEGATE_AGY_BIN", str(fake))
     monkeypatch.setattr(q.time, "time", lambda: 100)
@@ -496,7 +498,7 @@ def test_cli_pick_refreshes_agy_before_routing(monkeypatch, tmp_path, capsys):
         },
     }
     (tmp_path / "q.json").write_text(json.dumps(data))
-    fixture = os.path.abspath("tests/fixtures/agy-usage.txt")
+    fixture = os.path.join(FIXTURES, "agy-usage.txt")
     marker = tmp_path / "ran"
     fake = tmp_path / "agy"
     fake.write_text(f"#!/bin/sh\ntouch '{marker}'\ncat '{fixture}'\n", encoding="utf-8")

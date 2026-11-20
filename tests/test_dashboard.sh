@@ -7,6 +7,14 @@ fail() {
 }
 trap 'echo "FAIL: command failed: $BASH_COMMAND" >&2' ERR
 
+wait_for() {  # wait_for <seconds> <command...>: poll every 0.2s until it succeeds or the deadline passes
+  local end=$((SECONDS + $1)); shift
+  until "$@"; do
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep 0.2
+  done
+}
+
 require() {
   if "$@"; then
     return 0
@@ -93,11 +101,7 @@ PY
 require test -L "$repo/.agents/quota.json"
 require test -f "$DELEGATE_QUOTA"
 refresher_pid_file="$(dirname "$DELEGATE_QUOTA")/refresher.pid"
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-  [ -f "$refresher_pid_file" ] && break
-  sleep 0.2
-done
-require test -f "$refresher_pid_file"
+require wait_for 15 test -f "$refresher_pid_file"
 refresher_pid=$(sed -n '1p' "$refresher_pid_file")
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid"
 require kill -0 "$refresher_pid"
@@ -116,11 +120,7 @@ except (AssertionError, OSError, ValueError):
     sys.exit(1)
 PY
 }
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
-  all_vendors_refreshed && break
-  sleep 0.2
-done
-require all_vendors_refreshed
+require wait_for 15 all_vendors_refreshed
 first_updated=$(python3 - "$tmp/quota-response.json" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1], encoding="utf-8"))["agy"]["claude_gpt"]["updated"])
@@ -159,7 +159,7 @@ fi
 require test "$(sed -n '1p' "$refresher_pid_file")" = "$refresher_pid"
 require test "$(sed -n '2p' "$refresher_pid_file")" = "$server_pid2"
 require kill -0 "$refresher_pid"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+quota_updated_changed() {
   current_updated=$(python3 - "$DELEGATE_QUOTA" <<'PY'
 import json, sys
 try:
@@ -168,11 +168,9 @@ except (OSError, KeyError, ValueError):
     print("")
 PY
   )
-  if [ -n "$current_updated" ] && different "$current_updated" "$first_updated"; then break; fi
-  sleep 0.2
-done
-require test -n "$current_updated"
-require different "$current_updated" "$first_updated"
+  [ -n "$current_updated" ] && different "$current_updated" "$first_updated"
+}
+require wait_for 15 quota_updated_changed
 
 bash "$root/scripts/dashboard.sh" stop "$repo2" >/dev/null
 for _ in 1 2 3 4 5; do
