@@ -108,4 +108,16 @@ code=$?
 set -e
 test "$code" -eq 2; grep -q usage "$dir/stderr"; test ! -e "$dir/status.jsonl"
 
+# Unsafe id/parent are rejected before anything is written.
+dir="$tmp/badid/.agents"; mkdir -p "$dir"
+for args in "../x -" ".hidden -" "ok ../p"; do
+  set -- $args
+  set +e
+  AGENTS_LOG="$dir/status.jsonl" bash "$root/scripts/run-agent.sh" codex test-model - "$tmp/badid" "$1" "$2" "p" 2>"$tmp/badid/stderr"
+  code=$?
+  set -e
+  test "$code" -eq 2; grep -q usage "$tmp/badid/stderr"
+done
+test ! -e "$dir/status.jsonl"; test ! -e "$tmp/badid/x.out"; test -z "$(ls -A "$dir")"
+
 echo PASS

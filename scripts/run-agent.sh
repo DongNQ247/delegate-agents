@@ -6,6 +6,8 @@ set -u
 [ $# -eq 7 ] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
 agent=$1 model=$2 effort=$3 dir=$4 id=$5 parent=$6 prompt=$7
 [[ "$prompt" =~ [^[:space:]] ]] || { echo "usage: run-agent.sh agent model effort dir id parent prompt" >&2; exit 2; }
+safe() { [[ $1 =~ ^[A-Za-z0-9._-]+$ ]] && [[ $1 != .* ]]; }  # id/parent become file names under .agents
+safe "$id" && { [ "$parent" = - ] || safe "$parent"; } || { echo "usage: run-agent.sh agent model effort dir id parent prompt (id/parent: [A-Za-z0-9._-], no leading dot)" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 log=${AGENTS_LOG:?set AGENTS_LOG to an absolute path like <repo>/.agents/status.jsonl}
 case $log in /*) ;; *) log=$PWD/$log;; esac
