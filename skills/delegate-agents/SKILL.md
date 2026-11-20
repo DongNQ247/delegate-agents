@@ -14,6 +14,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 - Bug fix, refactor, or internal-only change → skip research; say in one line why (e.g. "Bug fix: no research needed").
 - Then **always** (features, fixes, refactors; after `## Decision` when research ran) → survey (see "Survey prompt") → superpowers:writing-plans from the research + survey reports → the workflow below.
 - Before the plan, write the acceptance criteria to `<repo>/.agents/criteria/YYYY-MM-DD-<topic>.md`: a numbered list in the user's words (features: from Clarify and `## Decision`; bug fixes: "bug no longer reproduces" + repro steps).
+- Size each plan task so its worker ends under ~40% of the model window (room for a fix round): estimate from the survey (files touched, their size) and split anything larger.
 - After the last merge → delegate-agents:acceptance (Tester checks every criterion), then hand-off.
 - While planning you may run at most two short `graphify query "<q>" --budget 800` follow-ups; never read the codebase yourself.
 
@@ -26,7 +27,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 | File | Git | Holds | Updated |
 |---|---|---|---|
 | `AGENTS.md` (+ symlinks `CLAUDE.md`, `GEMINI.md` → it) | committed | stable instructions for every agent: test command, layout, helpers to reuse, conventions | rarely, when a project rule is confirmed |
-| `.agents/REPORT.md` | git-excluded | progress report, one entry per merged task: date · task · commit · who (agent/model per role) · tests · review findings · open items | after **every** merged task, by you only |
+| `.agents/REPORT.md` | git-excluded | progress report, one entry per merged task: date · task · commit · who (agent/model per role) · tests · ctx at end (`.agents/<id>.ctx` ÷ window; ≥ 60% → a LESSONS entry: task shape → size) · review findings · open items | after **every** merged task, by you only |
 
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
@@ -98,6 +99,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 ### Worker instruction contract
 
 Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use the ponytail skill and superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
+Order every prompt stable-first, task last, so consecutive workers share a cached prefix: role rules · skill lines · AGENTS.md excerpt · LESSONS lines · then goal, files, reuse, acceptance cases.
 
 
 
@@ -156,6 +158,9 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/scripts/dash
 - `parent` = id of the sub-orchestrator that launched it; `-` = launched by you (shown under "orchestrator").
 - `MODE=ro` for reviews; `TIMEOUT=` seconds; `ALLOWED_TOOLS=` Bash rule for a claude worker; `WAVE=N`; `RESUME=<id>`; `RETRY=` (default 2, `0` disables); `RETRY_WAIT=` (default `"30 90"` seconds).
 - Fix loop: send the reviewer's findings to the implementer's own session with `RESUME=<implementer id>`, same agent, new id `<id>-fixN`, same parent. The prompt holds only the findings, not the full brief again. No `.agents/<id>.session` (or a different agent) → exit 2; start a new worker instead.
+- Reuse: a small, sequential task in the same files/module may go to the previous worker with `RESUME` (same vendor; waves keep one worker per task). run-agent checks only at `RESUME`: never stop or interrupt a running worker for context.
+- Rotation: `RESUME` exits 3 (status `rotate`) when the session's context (`.agents/<id>.ctx`, last turn input + cached) is ≥ 60% of the model window, or either is unknown. Then `HANDOFF=1 RESUME=<id>` with "Write a hand-off note: done, files touched, decisions, open items; ≤ 20 lines.", save the reply to `.agents/<id>.handoff.md`, and hire a fresh worker with that note + the task. Fix loops follow the same path.
+- Windows (run-agent `window()`; `CTX_WINDOW=` overrides): Codex `gpt-6-luna` and other 272k models 258,400, `gpt-6.1-*`/`gpt-6.2-sol` 475,000 (`~/.codex/models_cache.json` × 95%); Claude ids and `opus`/`sonnet` 1M, `haiku` 200k (Claude Code model catalog). agy: none verified → never reused.
 - Stop a worker: `AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh stop <id>` kills its process group; final status `cancelled`. Exit 1 = not running (unknown or already finished).
 - Retry: after a failure matching a known transient error (Codex stream disconnect / model at capacity, Claude "Connection lost mid-response"; agy has none on record), run-agent waits 30s then 90s and resumes the same session with "Continue the task…", at most `RETRY` times; each retry is a `retry N` line in status.jsonl. Real failures, timeouts, usage limits and stops are never retried. `RETRY=0` turns it off.
 - Full worker output: `$R/.agents/<id>.out`.
