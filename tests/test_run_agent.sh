@@ -35,6 +35,18 @@ AGENTS_LOG="$dir/status.jsonl" ROUTED_FROM=claude ROUTE_REASON="5h at 88%" \
 grep -q '"routed_from": "claude"' "$dir/status.jsonl"
 grep -q '"route_reason": "5h at 88%"' "$dir/status.jsonl"
 
+# WAVE adds a wave field to the start event; unset or empty omits it.
+dir="$tmp/wave"
+mkdir -p "$dir"
+AGENTS_LOG="$dir/status.jsonl" WAVE=2 bash "$root/run-agent.sh" claude test-model - "$dir" wave-case - "test prompt"
+AGENTS_LOG="$dir/status.jsonl" WAVE= bash "$root/run-agent.sh" claude test-model - "$dir" nowave-case - "test prompt"
+python3 - "$dir/status.jsonl" <<'PY'
+import json, sys
+starts = {e["id"]: e for e in map(json.loads, open(sys.argv[1])) if e.get("status") == "running"}
+assert starts["wave-case"]["wave"] == "2", starts
+assert "wave" not in starts["nowave-case"], starts
+PY
+
 # Agent artifacts belong beside the dashboard log, even when the worker runs elsewhere.
 agents="$tmp/separate/.agents"
 dir="$tmp/separate/worker"
