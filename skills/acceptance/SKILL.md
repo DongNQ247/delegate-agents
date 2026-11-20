@@ -22,7 +22,7 @@ merged product against the run's criteria, as a user would. You (orchestrator) n
 | Library | short script using the public API as a user would | Codex |
 | Other (desktop, ML…) | follow the run instructions in `AGENTS.md`; none → stop: "can't self-test", list manual steps for the user | — |
 
-Use a vendor different from the one that wrote most of the code when possible (same rule as review; else agy or Claude).
+Use a vendor different from the one that wrote most of the code when possible (same rule as review): Claude for web; agy only for CLI/library checks (it must not drive browsers or host apps).
 `MODE=ro`, unless the check must start a server or write a script/screenshot: then `MODE=rw` in a scratch worktree of the
 merged branch, never the main tree. Id `test-<topic>`.
 
