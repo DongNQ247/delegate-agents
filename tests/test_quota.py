@@ -535,3 +535,26 @@ def test_pick_preferred_agy_near_limit_switches(monkeypatch, tmp_path):
     vendor, reason = q.pick("agy:gemini-3.8-flash-low", ["agy:gemini-3.8-flash-low", "codex"], 1, data)
     assert vendor == "codex"
     assert "agy/gemini" in reason
+
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def quota_path(**env):
+    import subprocess, sys
+    base = {k: v for k, v in os.environ.items() if k not in ("DELEGATE_QUOTA", "CLAUDE_PLUGIN_DATA")}
+    base.update(env, PYTHONPATH=REPO)
+    return subprocess.run([sys.executable, "-c", "import quota; print(quota.QUOTA_PATH)"],
+                          env=base, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def test_quota_path_uses_plugin_data():
+    assert quota_path(CLAUDE_PLUGIN_DATA="/x") == "/x/state/quota.json"
+
+
+def test_quota_path_override_wins():
+    assert quota_path(CLAUDE_PLUGIN_DATA="/x", DELEGATE_QUOTA="/o.json") == "/o.json"
+
+
+def test_quota_path_empty_plugin_data():
+    assert quota_path(CLAUDE_PLUGIN_DATA="") == os.path.join(REPO, "state", "quota.json")
