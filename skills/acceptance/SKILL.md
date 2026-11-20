@@ -5,6 +5,68 @@ description: Use when delegate-agents has merged all tasks of a run and must che
 
 # Acceptance (Tester)
 
+Runs once, after every task of the run is merged and the suite passes, before hand-off. A Tester worker checks the
+merged product against the run's criteria, as a user would. You (orchestrator) never test it yourself.
+
+## 1. Inputs
+
+- Criteria: `<repo>/.agents/criteria/YYYY-MM-DD-<topic>.md` (numbered list, written at "Start here").
+- How to run the product: the survey report's Conventions and `AGENTS.md`.
+
+## 2. Pick recipe and vendor
+
+| Project type | Tester does | Vendor |
+|---|---|---|
+| Web UI | start the app, drive it with a Playwright script (see "Verified web route"): click/type per criterion, screenshot, console errors | Codex |
+| CLI / script | run commands with real input, compare output and exit code | Codex |
+| Library | short script using the public API as a user would | Codex |
+| Other (desktop, ML…) | follow the run instructions in `AGENTS.md`; none → stop: "can't self-test", list manual steps for the user | — |
+
+Use a vendor different from the one that wrote most of the code when possible (same rule as review; else agy or Claude).
+`MODE=ro`, unless the check must start a server or write a script/screenshot: then `MODE=rw` in a scratch worktree of the
+merged branch, never the main tree. Id `test-<topic>`.
+
+## 3. Tester prompt
+
+Write it to a file with a quoted heredoc:
+
+```
+You are the Tester. Never edit project code or tests, and never change the criteria.
+Product: <repo/worktree>. How to run it: <from survey Conventions / AGENTS.md>.
+Criteria:
+<numbered list>
+Check every criterion on the running product, as a user would. If it needs a server: start it, wait until it answers,
+stop it when done. Write any helper script and screenshot outside the repo, under <scratch dir>.
+A criterion with no observable check (e.g. "fast enough"), or one you cannot run → BLOCKED, with the reason. Never PASS
+without evidence.
+Return ONLY a markdown table: # | criterion | PASS/FAIL/BLOCKED | evidence (command + output excerpt, or screenshot path)
+```
+
+## 4. Verify
+
+Save the table to `<repo>/.agents/test/YYYY-MM-DD-<topic>.md`. Spot-check it: every row has evidence, cited files
+exist, and rerun one PASS command yourself. A PASS without evidence counts as FAIL.
+
+## 5. Fail loop (max 2 rounds)
+
+1. Map each FAIL to the task that owns it (plan + `git log`).
+2. `RESUME=<that worker's id>` with new id `<id>-acceptN`: only the failing criterion and its evidence.
+3. Unit tests + cross-vendor review as usual; merge.
+4. The Tester re-checks **all** criteria (a fix can break an earlier PASS): `RESUME=test-<topic>`, new id `test-<topic>-N`.
+
+Still failing after round 2 → stop and report to the user: what failed, what was tried, evidence.
+
+## 6. Stop and report (no auto-fix)
+
+- A criterion is ambiguous or contradictory, or fixing it would change scope or design.
+- The product can't be run or tested (missing data, accounts, no recipe), or any BLOCKED row.
+- The cause is outside the new code (environment, external service).
+
+## Keep the tests (only when the user asks)
+
+The Tester's checks become E2E tests in the repo: a normal worker task with acceptance cases from the criteria,
+then cross-vendor review. Never commit Tester scripts directly.
+
 ## Verified web route
 
 Measured 2026-11-20 (agy 1.5.13, Playwright 1.63.0), static page with a button that changes a text on click:
