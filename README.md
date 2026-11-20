@@ -10,7 +10,7 @@ A Claude Code plugin that lets Claude act as an **orchestrator**: it plans and v
 - **`run-agent.sh`** — one wrapper for all three CLIs (flags, timeout, closed stdin, read-only mode) that logs every worker to `.agents/status.jsonl`.
   `RESUME=<id>` continues a worker's own session (fix loops), `run-agent.sh stop <id>` cancels a running worker, and verified transient errors (network drop, model at capacity) are resumed automatically up to 2 times (`RETRY=0` disables).
   Worker reuse: `RESUME` is refused with exit 3 (`rotate`) once the session reaches 60% of the model window; the orchestrator then rotates to a fresh worker with a hand-off note.
-- **Live dashboard** — a local page showing the worker tree, each worker's conversation, and quota for every vendor (refreshed every 5 minutes at no token cost).
+- **Live dashboard** — a local page that fits one screen: four equal quota cards (Claude, Codex, agy Gemini, agy Claude & GPT; refreshed every 5 minutes at no token cost), the worker tree, and each worker's live log and conversation in a panel you can resize by dragging.
 - **Quota-aware routing** — `quota.py pick` moves a task to another vendor when the preferred one is running low.
 - **Parallel waves** — `waves.py` reads a [superpowers](https://github.com/obra/superpowers) writing-plans plan and groups tasks into waves; tasks in one wave share no files and no dependencies, so they run in parallel worktrees.
 - **Lesson book** — a Stop hook makes Claude record verified lessons (per machine) and a per-repo progress report after every merge.
@@ -56,7 +56,17 @@ Per-machine data lives in the plugin data folder (`~/.claude/plugins/data/delega
 | `LESSONS.md` | lessons learned on this machine; created from `LESSONS.template.md` on first use |
 | `state/quota.json` | latest quota snapshot per vendor |
 
-Inside each project you work on, the skill keeps `AGENTS.md` (committed, shared instructions for all agents) and `.agents/` (git-excluded: logs, dashboard, `REPORT.md`, `research/` reports).
+Inside each project you work on, the skill keeps `AGENTS.md` (committed, shared instructions for all agents) and `.agents/` (git-excluded):
+
+```
+.agents/
+  status.jsonl  REPORT.md  dashboard.html  quota.json
+  criteria/  survey/  research/  test/        reports
+  <agent id>/                                 one folder per worker
+    prompt.txt  out  err  events.jsonl  raw.jsonl  session  ctx
+```
+
+A task's agent folders are removed after it is merged and logged in `REPORT.md`; survey, research and test agent folders after the acceptance step. `status.jsonl`, `REPORT.md` and the report folders are kept.
 
 ## Layout
 
