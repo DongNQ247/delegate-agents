@@ -4,7 +4,8 @@ A Claude Code plugin that lets Claude act as an **orchestrator**: it plans and v
 
 ## What it does
 
-- **Strict roles** — Claude splits the plan, writes worker instructions, verifies and merges. A cheap researcher checks what already exists before any code is written. Workers implement only what they are told, with TDD. Review always goes to a different vendor than the one that wrote the code.
+- **Research first** — for new functionality, Claude asks a few clarifying questions, then a research worker searches the web for existing repos, templates, libraries and services. You get a comparison report (fit, stack, licence, maintenance, risks, verified links) and choose; only then is an implementation plan written.
+- **Strict roles** — Claude splits the plan, writes worker instructions, verifies and merges. A cheap reuse check looks for code already in the repo before any code is written. Workers implement only what they are told, with TDD. Review always goes to a different vendor than the one that wrote the code.
 - **`run-agent.sh`** — one wrapper for all three CLIs (flags, timeout, closed stdin, read-only mode) that logs every worker to `.agents/status.jsonl`.
 - **Live dashboard** — a local page showing the worker tree, each worker's conversation, and quota for every vendor (refreshed every 5 minutes at no token cost).
 - **Quota-aware routing** — `quota.py pick` moves a task to another vendor when the preferred one is running low.
@@ -36,6 +37,7 @@ claude plugin update delegate-agents@delegate-agents
 
 Just ask Claude, for example:
 
+- "Build a small shop website." → a few questions → research report in `.agents/research/` → you pick → plan → workers build it.
 - "Hand this task to Codex."
 - "Implement this plan with agy workers and have Codex review."
 - "Execute `docs/superpowers/plans/<plan>.md` in parallel waves."
@@ -51,7 +53,7 @@ Per-machine data lives in the plugin data folder (`~/.claude/plugins/data/delega
 | `LESSONS.md` | lessons learned on this machine; created from `LESSONS.template.md` on first use |
 | `state/quota.json` | latest quota snapshot per vendor |
 
-Inside each project you work on, the skill keeps `AGENTS.md` (committed, shared instructions for all agents) and `.agents/` (git-excluded: logs, dashboard, `REPORT.md`).
+Inside each project you work on, the skill keeps `AGENTS.md` (committed, shared instructions for all agents) and `.agents/` (git-excluded: logs, dashboard, `REPORT.md`, `research/` reports).
 
 ## Layout
 
@@ -59,7 +61,8 @@ Inside each project you work on, the skill keeps `AGENTS.md` (committed, shared 
 .claude-plugin/   plugin.json, marketplace.json
 hooks/            hooks.json, lessons-hook.py (Stop hook)
 scripts/          run-agent.sh, quota.py, waves.py, dashboard.sh, dashboard.html, stream_normalize.py
-skills/delegate-agents/SKILL.md
+skills/delegate-agents/SKILL.md   main skill (entry point)
+skills/research/SKILL.md          research phase
 tests/
 LESSONS.template.md
 ```

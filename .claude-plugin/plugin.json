@@ -1,5 +1,5 @@
 {
   "name": "delegate-agents",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Use when the user asks to hand work to Codex, Antigravity (agy) or a headless Claude, to use other vendors' agent tokens, to pick a model or reasoning effort for a delegated task, to get a cross-vendor code review, or when executing a plan whose independent tasks could run on another agent."
 }

@@ -40,7 +40,8 @@ Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin l
 | Role | Who | Does | Never |
 |---|---|---|---|
 | Orchestrator | you (Claude; always Claude) | split the plan, decide from the reuse-check table, write worker instructions, verify, merge, clean | research the codebase or the web itself; write code |
-| Reuse check | Codex `gpt-6-luna` low, `MODE=ro` (id `research`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
+| Researcher (new functionality only) | Codex `gpt-6-luna` medium, `MODE=ro`, web search (id `research-<topic>`); agy fallback | external prior art: repos, templates, libraries, services → comparison report via delegate-agents:research | choose for the user; edit files |
+| Reuse check | Codex `gpt-6-luna` low, `MODE=ro` (id `reuse-check`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
 
