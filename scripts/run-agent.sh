@@ -2,7 +2,8 @@
 # Run one worker headless and log start/end to $AGENTS_LOG for dashboard.html.
 # usage: AGENTS_LOG=/abs/repo/.agents/status.jsonl bash run-agent.sh <codex|agy|claude> <model> <effort|-> <abs-dir> <id> <parent|-> "<prompt>"
 # env: MODE=ro (read-only review), TIMEOUT=600, WAVE=N (parallel wave, shown on the dashboard),
-#      RESUME=<earlier id> (continue that worker's session; same agent),
+#      RESUME=<earlier id> (continue that worker's session; same agent; exit 3 "rotate" when its .ctx >= CTX_LIMIT=0.60
+#        of the model window (CTX_WINDOW overrides) or either is unknown; HANDOFF=1 skips the check for the hand-off note),
 #      RETRY=2 (resumes after a verified transient error; 0 disables), RETRY_WAIT="30 90" (seconds before each retry)
 # stop:  AGENTS_LOG=... bash run-agent.sh stop <id>   (cancel a running worker; final status "cancelled")
 set -u
@@ -41,6 +42,30 @@ fi
 emit() {  # key value ... -> one JSON line (short line + O_APPEND keeps parallel writes intact)
   python3 -c 'import json,sys,time; d=dict(zip(sys.argv[1::2],sys.argv[2::2])); d["ts"]=time.time(); print(json.dumps(d))' "$@" >> "$log"
 }
+
+window() {  # usable context window in tokens for agent:model; empty = unknown (never reused). agy: none verified.
+  case $1 in
+    # codex: ~/.codex/models_cache.json context_window x effective_context_window_percent (95); rollouts report the same model_context_window
+    codex:gpt-6.2-sol|codex:gpt-6.1-terra|codex:gpt-6.1-sol) echo 475000 ;;
+    codex:gpt-6.2-astra|codex:gpt-reserve|codex:gpt-6-astra|codex:gpt-6-sol|codex:gpt-6-luna|codex:gpt-5.6-sol|codex:gpt-5.6-terra|codex:gpt-5.6-luna) echo 258400 ;;
+    # claude: Claude Code model catalog cache, runtime.max_input_tokens; the haiku alias takes the smaller of its two Haiku entries
+    claude:claude-haiku-4-5-20251001|claude:haiku) echo 200000 ;;
+    claude:opus|claude:sonnet|claude:fable|claude:claude-opus-5-5|claude:claude-sonnet-5-5|claude:claude-fable-5-2|claude:claude-haiku-5-5|claude:claude-fable-5-1|claude:claude-sonnet-5|claude:claude-opus-5|claude:claude-fable-5|claude:claude-opus-4-8|claude:claude-opus-4-7|claude:claude-opus-4-6|claude:claude-sonnet-4-6) echo 1000000 ;;
+  esac
+}
+if [ -n "$sid" ] && [ "${HANDOFF:-}" != 1 ]; then  # only between tasks: a running worker is never stopped for context
+  win=${CTX_WINDOW:-$(window "$agent:$model")} ctx=$(cat "$agents/$RESUME.ctx" 2>/dev/null)
+  if [ -z "$win" ]; then why="unknown window: hire fresh"
+  elif ! [[ $ctx =~ ^[0-9]+$ ]]; then why="no context size recorded for '$RESUME': hire fresh"
+  else why=$(python3 -c 'import sys; c,w,l=int(sys.argv[1]),int(sys.argv[2]),float(sys.argv[3])
+if c >= l*w: print(f"context {c*100//w}% ≥ {l*100:g}%: rotate")' "$ctx" "$win" "${CTX_LIMIT:-0.60}")
+  fi
+  if [ -n "$why" ]; then
+    echo "RESUME: $why" >&2
+    emit id "$id" parent "$parent" agent "$agent" model "$model" status rotate code 3 summary "$why" resumed_from "$RESUME"
+    exit 3
+  fi
+fi
 
 wave=(); [ -n "${WAVE:-}" ] && wave=(wave "$WAVE")
 emit id "$id" parent "$parent" agent "$agent" model "$model" effort "$effort" dir "$dir" mode "$mode" status running task "${prompt:0:200}" routed_from "${ROUTED_FROM:-}" route_reason "${ROUTE_REASON:-}" ${wave[@]+"${wave[@]}"} ${resumed[@]+"${resumed[@]}"}
