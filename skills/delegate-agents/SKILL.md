@@ -12,11 +12,12 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
 - New functionality (a feature, website, app, integration) → run delegate-agents:research first.
 - Bug fix, refactor, or internal-only change → skip research; say in one line why (e.g. "Bug fix: no research needed").
-- After the user's choice is recorded under `## Decision` in the report → superpowers:writing-plans from the report → the workflow below.
+- Then **always** (features, fixes, refactors; after `## Decision` when research ran) → survey (see "Survey prompt") → superpowers:writing-plans from the research + survey reports → the workflow below.
+- While planning you may run at most two short `graphify query "<q>" --budget 800` follow-ups; never read the codebase yourself.
 
 **Lesson book — `${CLAUDE_PLUGIN_DATA}/LESSONS.md`:**
 - Start of a run: seed it if missing with `[ -f ${CLAUDE_PLUGIN_DATA}/LESSONS.md ] || { mkdir -p ${CLAUDE_PLUGIN_DATA} && cp ${CLAUDE_PLUGIN_ROOT}/LESSONS.template.md ${CLAUDE_PLUGIN_DATA}/LESSONS.md; }`, then read it, and copy only the lines relevant to a worker into that worker's prompt. Workers never read the whole book.
-- End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and reuse-check problems arrive through their summaries.
+- End of a run: append verified lessons in its entry format (date, tags, what happened → rule, evidence, status). Only you write; worker and survey problems arrive through their summaries.
 - An entry that repeats or gets proven → move its rule into SKILL.md and delete it from LESSONS.md.
 
 **Per-project files (in the repo you're working on):**
@@ -27,7 +28,7 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 
 - First run in a repo: create both if missing. Build `AGENTS.md` from what exists (test command, modules), not from guesses. Verified: Codex, agy and Claude all auto-load it (answered a repo-only question with no tools).
 - Promote: a REPORT finding that is a project rule → `AGENTS.md`; a finding true for every project → `LESSONS.md`.
-- The reuse check reads `AGENTS.md` too, so keep its "reuse" list current. That makes the reuse check cheaper.
+- The Surveyor reads `AGENTS.md` too, so keep its "reuse" list current. That makes the survey cheaper.
 - A Stop hook (`hooks/lessons-hook.py`, in the plugin's `hooks/hooks.json`) blocks a stop only after a `git merge` (in a session that used `run-agent.sh`) until LESSONS.md and `.agents/REPORT.md` have been handled since that merge. Answer by updating the file(s), or by one line saying there is nothing new. It reads only your own Bash/Write/Edit calls and text, with quoted strings ignored, so fixtures, `ls`/`grep` output and prompts don't trigger it. Self-test: `python3 -m pytest ${CLAUDE_PLUGIN_ROOT}/tests`.
 
 **REQUIRED:** superpowers:verification-before-completion (accepting a worker's result is a completion claim).
@@ -39,28 +40,34 @@ Codex and agy have superpowers installed too (`codex plugin list`, `agy plugin l
 
 | Role | Who | Does | Never |
 |---|---|---|---|
-| Orchestrator | you (Claude; always Claude) | split the plan, decide from the reuse-check table, write worker instructions, verify, merge, clean | research the codebase or the web itself; write code |
+| Orchestrator | you (Claude; always Claude) | split the plan, decide from the survey's reuse table, write worker instructions, verify, merge, clean | research the codebase or the web itself; write code |
 | Researcher (new functionality only) | Codex `gpt-6-luna` medium, `MODE=ro`, web search (id `research-<topic>`); agy fallback | external prior art: repos, templates, libraries, services → comparison report via delegate-agents:research | choose for the user; edit files |
-| Reuse check | Codex `gpt-6-luna` low, `MODE=ro` (id `reuse-check`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | one call per plan: what already exists for each task, reported as a table | edit files; decide; implement |
+| Surveyor | Codex `gpt-6-luna` low, `MODE=ro` (id `survey-<topic>`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | before every plan: structure, conventions, reuse table, risks → survey report | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
 
-Run the reuse check before every dispatch that has more than one task, or any task that might duplicate existing code. A single trivial task may go straight to a worker.
+Run the survey before every plan. A single trivial task may go straight to a worker.
 
-### Reuse-check prompt (fill `<tasks>`)
+### Survey prompt (fill `<change>`)
+
+First: `command -v graphify >/dev/null && (cd <abs repo> && graphify update .)` (AST only, no LLM, incremental; never `--mode deep` unless the user asks). Then:
+`TIMEOUT=600 MODE=ro AGENTS_LOG=<abs repo>/.agents/status.jsonl bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-agent.sh codex gpt-6-luna low <abs repo> survey-<topic> - "$(cat <prompt file>)"`
 
 ```
-You are the reuse check. Do not edit files. Do not implement anything.
-Repo: <abs path>. If graphify-out/ exists, query it first.
-For EACH task, walk this ladder and stop at the first rung that fully covers it:
+You are the Surveyor. Do not edit files. Do not implement anything.
+Repo: <abs path>. Change planned: <change>
+If graphify-out/graph.json exists, use `graphify query "<q>" --budget 1500`, `graphify path "A" "B"`, `graphify explain "X"` first; otherwise `rg`/`ls`. Open only the files they point to.
+For the reuse table, walk this ladder per piece of the change and stop at the first rung that fully covers it:
 1 not needed / already done  2 exists in this codebase  3 standard library / platform  4 already-installed dependency  5 new code (minimal)
-Also flag tasks that would each create the same new helper (SHARED).
-Output ONLY a table, one row per task: ID | VERDICT (DROP|REUSE|STDLIB|DEP|SHARED|NEW) | evidence (file:symbol, module, or package — must exist) | one-line instruction for the worker.
-Tasks:
-<tasks>
+Flag pieces that would each create the same new helper (SHARED).
+Output ONLY these four sections, each at most ~25 lines; every path you cite must exist:
+## Structure — files/modules the change touches and how they relate
+## Conventions — test command, naming, patterns to follow
+## Reuse — table: ID | VERDICT (DROP|REUSE|STDLIB|DEP|SHARED|NEW) | evidence (file:symbol, module, or package) | one-line instruction
+## Risks — fragile or untested areas the change touches
 ```
 
-You then check each evidence path exists (one `grep`/`ls`, not a re-research), and turn the table into worker instructions: DROP → no task; REUSE/STDLIB/DEP → name the exact symbol to use; SHARED → one task builds the helper first, the others run after it merges; NEW → normal task.
+You then check each evidence path exists (one `grep`/`ls`, not a re-research), save the report to `<repo>/.agents/survey/YYYY-MM-DD-<topic>.md`, promote stable facts (test command, layout, reuse list) to `AGENTS.md`, and turn the table into plan tasks and worker instructions: DROP → no task; REUSE/STDLIB/DEP → name the exact symbol to use; SHARED → one task builds the helper first, the others run after it merges; NEW → normal task.
 
 ### Who writes tests
 
@@ -73,7 +80,7 @@ Why: an agent that writes both code and tests confirms its own misreading. agy's
 
 ### Worker instruction contract
 
-Every worker prompt contains: goal · files to touch · what to reuse (from the reuse check) · acceptance cases · test command · "Use superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
+Every worker prompt contains: goal · files to touch · what to reuse (from the survey) · acceptance cases · test command · "Use superpowers:test-driven-development. Do not search the codebase or add dependencies beyond this. If the instructed reuse does not work, stop and report why instead of finding another way. Do not commit. Reply with a one-line summary."
 
 
 
