@@ -13,6 +13,8 @@ Pick flat vs two-level vs mixed per run — see "Choosing the shape".
 - New functionality (a feature, website, app, integration) → run delegate-agents:research first.
 - Bug fix, refactor, or internal-only change → skip research; say in one line why (e.g. "Bug fix: no research needed").
 - Then **always** (features, fixes, refactors; after `## Decision` when research ran) → survey (see "Survey prompt") → superpowers:writing-plans from the research + survey reports → the workflow below.
+- Before the plan, write the acceptance criteria to `<repo>/.agents/criteria/YYYY-MM-DD-<topic>.md`: a numbered list in the user's words (features: from Clarify and `## Decision`; bug fixes: "bug no longer reproduces" + repro steps).
+- After the last merge → delegate-agents:acceptance (Tester checks every criterion), then hand-off.
 - While planning you may run at most two short `graphify query "<q>" --budget 800` follow-ups; never read the codebase yourself.
 
 **Lesson book — `${CLAUDE_PLUGIN_DATA}/LESSONS.md`:**
@@ -44,6 +46,7 @@ Codex and agy have superpowers and ponytail installed too (`codex plugin list`, 
 | Researcher (new functionality only) | Codex `gpt-6-luna` medium, `MODE=ro`, web search (id `research-<topic>`); agy fallback | external prior art: repos, templates, libraries, services → comparison report via delegate-agents:research | choose for the user; edit files |
 | Surveyor | Codex `gpt-6-luna` low, `MODE=ro` (id `survey-<topic>`) — measured 30s vs agy gemini-flash 394s (high: timed out at 300s), same accuracy | before every plan: structure, conventions, reuse table, risks → survey report | edit files; decide; implement |
 | Test-writer (risky tasks only) | a vendor different from the implementer | failing tests from your acceptance cases, before any code exists; commit-ready test file only | write implementation code |
+| Tester (end of run) | vendor per delegate-agents:acceptance recipe, `MODE=ro` unless it must serve (id `test-<topic>`) | end-of-run acceptance check of the merged product vs the criteria file | edit code; change criteria |
 | Worker | Codex / agy / Claude | exactly the instructed task, with the reuse it was told to use; unit tests via TDD | explore or research beyond the files named; add dependencies; edit tests it was given |
 
 ### Skills by role
@@ -76,7 +79,7 @@ For the reuse table, walk this ladder per piece of the change and stop at the fi
 Flag pieces that would each create the same new helper (SHARED).
 Output ONLY these four sections, each at most ~25 lines; every path you cite must exist:
 ## Structure — files/modules the change touches and how they relate
-## Conventions — test command, naming, patterns to follow
+## Conventions — test command, naming, patterns to follow, how to run the product and check it by hand
 ## Reuse — table: ID | VERDICT (DROP|REUSE|STDLIB|DEP|SHARED|NEW) | evidence (file:symbol, module, or package) | one-line instruction
 ## Risks — fragile or untested areas the change touches
 ```

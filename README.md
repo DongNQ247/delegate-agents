@@ -6,6 +6,7 @@ A Claude Code plugin that lets Claude act as an **orchestrator**: it plans and v
 
 - **Research first** — for new functionality, Claude asks a few clarifying questions, then a research worker searches the web for existing repos, templates, libraries and services. You get a comparison report (fit, stack, licence, maintenance, risks, verified links) and choose; only then is an implementation plan written.
 - **Strict roles** — Claude splits the plan, writes worker instructions, verifies and merges. A cheap Surveyor maps the codebase before every plan (structure, conventions, what to reuse, risks), using graphify when installed. Workers implement only what they are told, with TDD. Review always goes to a different vendor than the one that wrote the code.
+- **Acceptance Tester** — acceptance criteria are written at the start of every run (features and bug fixes); after the last merge a Tester checks each one on the running product (CLI, library, or web via Playwright) and reports PASS/FAIL/BLOCKED with evidence to `.agents/test/`. Failures go back to the owning worker, at most 2 rounds.
 - **`run-agent.sh`** — one wrapper for all three CLIs (flags, timeout, closed stdin, read-only mode) that logs every worker to `.agents/status.jsonl`.
   `RESUME=<id>` continues a worker's own session (fix loops), `run-agent.sh stop <id>` cancels a running worker, and verified transient errors (network drop, model at capacity) are resumed automatically up to 2 times (`RETRY=0` disables).
 - **Live dashboard** — a local page showing the worker tree, each worker's conversation, and quota for every vendor (refreshed every 5 minutes at no token cost).
@@ -64,6 +65,7 @@ hooks/            hooks.json, lessons-hook.py (Stop hook)
 scripts/          run-agent.sh, quota.py, waves.py, dashboard.sh, dashboard.html, stream_normalize.py
 skills/delegate-agents/SKILL.md   main skill (entry point)
 skills/research/SKILL.md          research phase
+skills/acceptance/SKILL.md        end-of-run acceptance (Tester)
 tests/
 LESSONS.template.md
 ```
