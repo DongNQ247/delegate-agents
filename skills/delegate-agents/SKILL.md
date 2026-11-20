@@ -163,6 +163,21 @@ CLAUDE_PLUGIN_DATA=${CLAUDE_PLUGIN_DATA} bash ${CLAUDE_PLUGIN_ROOT}/dashboard.sh
 To reduce conflicts, split tasks by file/module rather than by feature in the same file.
 Verified: 5 concurrent agents (3 Codex + 2 agy), one file pair each → ~55s wall time, zero merge conflicts, no rate-limit errors. Two agents appending to the same file → conflict every time.
 
+### Parallel waves (running a writing-plans plan)
+
+After the pre-flight scan, run `python3 ${CLAUDE_PLUGIN_ROOT}/waves.py <plan.md>` (`--json` for machine output) and paste its `| Wave | Tasks | Waits for |` table into the ledger without asking the user. It reads each task's `**Files:**` and `**Interfaces:**` blocks: tasks sharing a written file, or where one Consumes what an earlier one Produces (or says `(Task N)`), go in later waves. A task with no Files block waits for all earlier tasks. Waves have at most 5 tasks.
+
+Per wave:
+1. BASE = the feature-branch head at wave start. One worktree and one implementer per task, dispatched in parallel with `WAVE=<N>` on each `run-agent.sh` call (the dashboard shows a `wave N` tag).
+2. Reviewers run in parallel, one per task, each with its own fix loop (same caps as subagent-driven-development).
+3. When every task in the wave is done, merge the task branches into the feature branch one at a time, running the suite after each merge. Write per-task ledger lines as usual, then `Wave N: merged (<commits>)`.
+4. A stuck task (fix-loop cap hit) goes through the breaker; its wave-mates still merge. Tasks that depend on it wait, and you rule on them per the breaker rules.
+5. A merge conflict despite the waves means the plan under-declared its files: resolve it yourself and add a LESSONS entry.
+
+**Override:** when dispatching through delegate-agents with one worktree per task, tasks in the same wave may run in parallel. This overrides subagent-driven-development's "never dispatch multiple implementation subagents in parallel" for this case only; its ledger, briefs, per-task review, fix-loop caps and final review still apply.
+
+**Plan authors (writing-plans):** keep writing `(Task N)` in a task's Consumes line — it is the most reliable dependency signal for `waves.py`.
+
 ## Choosing the shape: flat, two-level, or mixed (decide per run)
 
 Decide each time from the plan in front of you; never default to two-level.
