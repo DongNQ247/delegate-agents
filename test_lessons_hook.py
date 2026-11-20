@@ -8,13 +8,14 @@ def edit(path): return {"type": "tool_use", "name": "Edit", "input": {"file_path
 def text(t): return {"type": "text", "text": t}
 def result(t): return {"type": "user", "message": {"content": [{"type": "tool_result", "content": t}]}}
 
-def run(entries, extra=None):
+def run(entries, extra=None, env=None):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
         for e in entries:
             line = e if e.get("type") == "user" else {"type": "assistant", "message": {"content": [e]}}
             f.write(json.dumps(line) + "\n")
     payload = {"transcript_path": f.name, **(extra or {})}
-    out = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True).stdout
+    out = subprocess.run([sys.executable, HOOK], input=json.dumps(payload), capture_output=True, text=True,
+                         env={**os.environ, **env} if env else None).stdout
     os.unlink(f.name)
     return out
 
@@ -47,5 +48,8 @@ for name, entries, expect in cases:
     print(f"{'ok ' if ok else 'FAIL'} {name}: expected {expect}, got {got}")
 assert run([bash(RA), bash("git merge t")], {"stop_hook_active": True}) == "", "must not loop"
 assert subprocess.run([sys.executable, HOOK], input="garbage", capture_output=True, text=True).returncode == 0
-print("loop guard ok, bad input ok")
+merge = [bash(RA), bash("git merge t")]
+assert "/d/LESSONS.md" in run(merge, env={"CLAUDE_PLUGIN_DATA": "/d"}), "LESSONS must follow CLAUDE_PLUGIN_DATA"
+assert os.path.join(os.path.dirname(HOOK), "LESSONS.md") in run(merge, env={"CLAUDE_PLUGIN_DATA": ""}), "empty CLAUDE_PLUGIN_DATA = unset"
+print("loop guard ok, bad input ok, data path ok")
 sys.exit(1 if fails else 0)
